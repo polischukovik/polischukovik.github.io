@@ -31,7 +31,7 @@
 <body>
 
     <h1>Genesys Cloud Authenticated Web Messaging</h1>
-    <p>Open the messenger widget to begin the authentication flow.</p>
+    <p>The messenger widget should open automatically once loaded.</p>
 
     <!-- Genesys Cloud Messenger Snippet -->
     <script type="text/javascript" charset="utf-8">
@@ -49,8 +49,16 @@
       });
     </script>
 
+    <!-- Script to automatically open the messenger -->
+    <script>
+        Genesys('subscribe', 'Messenger.ready', function(){
+            console.log('Messenger is ready, opening it.');
+            Genesys('command', 'Messenger.open');
+        });
+    </script>
+
     <footer>
-        <p>Last deployed: 2026-01-09 19:13:31 CET</p>
+        <p>Last deployed: 2026-01-09 19:16:43 CET</p>
     </footer>
 
 </body>
