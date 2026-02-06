@@ -189,6 +189,7 @@
      * Note: Calls queue safely even before genesys.min.js finishes loading.
      */
     Genesys("registerPlugin", "AuthProvider", (AuthProvider) => {
+      console.log("AuthProvider plugin registration started.");
 
       // Mandatory: Messenger asks for a code here
       AuthProvider.registerCommand("getAuthCode", async (e) => {
@@ -207,23 +208,31 @@
           e.reject(err);
         }
       });
+      console.log("Registered 'getAuthCode' command.");
 
       // This will be called by Messenger when it needs to refresh a token
       AuthProvider.registerCommand("refreshToken", async (e) => {
+        // Adding a debugger statement. If your browser's developer tools are open,
+        // execution will pause here when this command is called.
+        debugger;
+
+        console.log(">>> refreshToken command CALLED by Messenger.");
         try {
-          console.log("Messenger requesting token refresh...");
+          console.log("Token from Messenger:", e.data.token ? "(present)" : "(not present)");
           const newAuthData = await refreshTokenFlow(e.data.token);
-          console.log("Token refreshed successfully.");
+          console.log("Token refreshed successfully via refreshTokenFlow.", newAuthData);
           e.resolve(newAuthData);
         } catch (err) {
-          console.error("refreshToken failed:", err);
+          console.error("!!! refreshToken command FAILED.", err);
           // If refresh fails, Messenger will call reAuthenticate as a fallback
           e.reject(err);
         }
       });
+      console.log("Registered 'refreshToken' command.");
 
       // Called when refresh/auth context is no longer valid
       AuthProvider.registerCommand("reAuthenticate", async (e) => {
+        console.log(">>> reAuthenticate command CALLED by Messenger.");
         try {
           const data = await getAuthCodeViaPopup();
           e.resolve({
@@ -233,10 +242,11 @@
             nonce: data.nonce,
           });
         } catch (err) {
-          console.error("reAuthenticate failed:", err);
+          console.error("!!! reAuthenticate command FAILED.", err);
           e.reject(err);
         }
       });
+      console.log("Registered 'reAuthenticate' command.");
 
       // Optional: used with Step-up auth scenarios
       AuthProvider.registerCommand("signIn", async (e) => {
@@ -249,18 +259,23 @@
           e.reject(err);
         }
       });
+      console.log("Registered 'signIn' command.");
 
       AuthProvider.subscribe("Auth.loggedOut", () => {
+        console.log("Auth.loggedOut event received.");
         sessionStorage.removeItem("gc_pkce_verifier");
         sessionStorage.removeItem("gc_oidc_state");
         sessionStorage.removeItem("gc_oidc_nonce");
       });
+      console.log("Subscribed to 'Auth.loggedOut' event.");
 
       AuthProvider.subscribe("Auth.authError", (error) => {
-        console.warn("Messenger Auth.authError:", error);
+        console.warn("!!! Messenger Auth.authError event received:", error);
       });
+      console.log("Subscribed to 'Auth.authError' event.");
 
       AuthProvider.ready();
+      console.log("AuthProvider plugin is ready.");
     });
   </script>
 </head>
