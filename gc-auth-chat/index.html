@@ -141,28 +141,27 @@
      * ==========================================================
      */
     async function refreshTokenFlow(refreshToken) {
-      const tokenEndpoint = AUTH_CONFIG.authorizationEndpoint.replace("/authorize", "/token");
+      // Genesys Cloud API endpoint for refreshing tokens
+      // The environment is "prod-euw1", so the API base URL is api.mypurecloud.ie
+      const tokenRefreshEndpoint = "https://api.mypurecloud.ie/api/v2/webdeployments/token/refresh";
 
-      const params = new URLSearchParams();
-      params.append("grant_type", "refresh_token");
-      params.append("client_id", AUTH_CONFIG.clientId);
-      params.append("refresh_token", refreshToken);
-      params.append("scope", AUTH_CONFIG.scope);
-
-      const response = await fetch(tokenEndpoint, {
+      const response = await fetch(tokenRefreshEndpoint, {
         method: "POST",
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Type": "application/json",
         },
-        body: params,
+        body: JSON.stringify({ refreshToken: refreshToken }),
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error_description: response.statusText }));
-        throw new Error(`Refresh token failed: ${error.error_description}`);
+        const error = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(`Genesys token refresh failed: ${error.message}`);
       }
 
-      return response.json();
+      const tokenData = await response.json();
+      // The Genesys API returns a 'jwt' field, not a full OIDC token response.
+      // The Messenger SDK expects this 'jwt' to be returned.
+      return { jwt: tokenData.jwt };
     }
 
     /**
