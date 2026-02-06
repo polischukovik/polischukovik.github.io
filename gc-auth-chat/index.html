@@ -1,0 +1,271 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Auth Chat Demo</title>
+
+  <script>
+    /**
+     * ==========================================================
+     *  AUTH CONFIG — UPDATE THESE
+     * ==========================================================
+     * - authorizationEndpoint: your IdP /authorize endpoint
+     * - clientId: your IdP OIDC app client id
+     * - redirectUri: MUST be registered in your IdP AND match what Genesys expects
+     * - scope: usually "openid profile email"
+     */
+    const AUTH_CONFIG = {
+      authorizationEndpoint: "https://login.microsoftonline.com/YOUR_TENANT_ID/oauth2/v2.0/authorize",
+      clientId: "YOUR_CLIENT_ID",
+      redirectUri: "https://example.com/callback",
+      scope: "openid profile email offline_access",
+      // Optional: if you need a forced login each time
+      // prompt: "login",
+    };
+
+    /**
+     * ==========================================================
+     *  PKCE HELPERS
+     * ==========================================================
+     */
+    function base64UrlEncode(arrayBuffer) {
+      const bytes = new Uint8Array(arrayBuffer);
+      let str = "";
+      for (const b of bytes) str += String.fromCharCode(b);
+      return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    }
+
+    function randomString(bytes = 32) {
+      const arr = new Uint8Array(bytes);
+      crypto.getRandomValues(arr);
+      return base64UrlEncode(arr);
+    }
+
+    async function sha256(str) {
+      const data = new TextEncoder().encode(str);
+      return crypto.subtle.digest("SHA-256", data);
+    }
+
+    async function pkceChallengeFromVerifier(verifier) {
+      const hashed = await sha256(verifier);
+      return base64UrlEncode(hashed);
+    }
+
+    /**
+     * ==========================================================
+     *  START LOGIN (POPUP) AND RETURN { authCode, redirectUri, codeVerifier, nonce }
+     * ==========================================================
+     */
+    async function getAuthCodeViaPopup() {
+      const codeVerifier = randomString(48);
+      const codeChallenge = await pkceChallengeFromVerifier(codeVerifier);
+
+      const state = randomString(24);
+      const nonce = crypto.randomUUID();
+
+      sessionStorage.setItem("gc_pkce_verifier", codeVerifier);
+      sessionStorage.setItem("gc_oidc_state", state);
+      sessionStorage.setItem("gc_oidc_nonce", nonce);
+
+      const url = new URL(AUTH_CONFIG.authorizationEndpoint);
+      url.searchParams.set("client_id", AUTH_CONFIG.clientId);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("scope", AUTH_CONFIG.scope);
+      url.searchParams.set("redirect_uri", AUTH_CONFIG.redirectUri);
+      url.searchParams.set("state", state);
+      url.searchParams.set("nonce", nonce);
+
+      // PKCE
+      url.searchParams.set("code_challenge", codeChallenge);
+      url.searchParams.set("code_challenge_method", "S256");
+
+      // Optional prompt
+      if (AUTH_CONFIG.prompt) url.searchParams.set("prompt", AUTH_CONFIG.prompt);
+
+      const w = 600, h = 750;
+      const left = Math.max(0, (window.screen.width - w) / 2);
+      const top = Math.max(0, (window.screen.height - h) / 2);
+
+      const popup = window.open(
+        url.toString(),
+        "gc_oidc_login",
+        `width=${w},height=${h},left=${left},top=${top}`
+      );
+
+      if (!popup) throw new Error("Popup blocked (allow popups for this site).");
+
+      const result = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error("Login timed out."));
+        }, 2 * 60 * 1000);
+
+        function onMessage(event) {
+          // IMPORTANT: lock down in production:
+          // if (event.origin !== "https://YOUR-DOMAIN") return;
+
+          if (!event.data || event.data.type !== "GC_OIDC_CODE") return;
+          cleanup();
+          resolve(event.data.payload);
+        }
+
+        function cleanup() {
+          clearTimeout(timeout);
+          window.removeEventListener("message", onMessage);
+          try { popup.close(); } catch {}
+        }
+
+        window.addEventListener("message", onMessage);
+      });
+
+      if (result.error) {
+        throw new Error(result.errorDescription || result.error || "Login failed.");
+      }
+
+      const expectedState = sessionStorage.getItem("gc_oidc_state");
+      if (result.state !== expectedState) {
+        throw new Error("Invalid state returned from IdP (possible CSRF).");
+      }
+
+      return {
+        authCode: result.code,
+        redirectUri: AUTH_CONFIG.redirectUri,
+        codeVerifier: sessionStorage.getItem("gc_pkce_verifier"),
+        nonce: sessionStorage.getItem("gc_oidc_nonce"),
+      };
+    }
+
+    /**
+     * ==========================================================
+     *  HANDLE REFRESH TOKEN FLOW
+     * ==========================================================
+     */
+    async function refreshTokenFlow(refreshToken) {
+      const tokenEndpoint = AUTH_CONFIG.authorizationEndpoint.replace("/authorize", "/token");
+
+      const params = new URLSearchParams();
+      params.append("grant_type", "refresh_token");
+      params.append("client_id", AUTH_CONFIG.clientId);
+      params.append("refresh_token", refreshToken);
+      params.append("scope", AUTH_CONFIG.scope);
+
+      const response = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: params,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error_description: response.statusText }));
+        throw new Error(`Refresh token failed: ${error.error_description}`);
+      }
+
+      return response.json();
+    }
+
+    /**
+     * ==========================================================
+     *  GENESYS BOOTSTRAP
+     * ==========================================================
+     */
+    (function (g, e, n, es, ys) {
+      g["_genesysJs"] = e;
+      g[e] = g[e] || function () { (g[e].q = g[e].q || []).push(arguments); };
+      g[e].t = 1 * new Date();
+      g[e].c = es;
+      ys = document.createElement("script"); ys.async = 1; ys.src = n; ys.charset = "utf-8";
+      document.head.appendChild(ys);
+    })(window, "Genesys", "https://apps.mypurecloud.ie/genesys-bootstrap/genesys.min.js", {
+      environment: "prod-euw1",
+      deploymentId: "891826ea-822e-45fe-a0a5-0074820d7851"
+    });
+
+    /**
+     * ==========================================================
+     *  AUTH PROVIDER PLUGIN
+     * ==========================================================
+     * Note: Calls queue safely even before genesys.min.js finishes loading.
+     */
+    Genesys("registerPlugin", "AuthProvider", (AuthProvider) => {
+
+      // Mandatory: Messenger asks for a code here
+      AuthProvider.registerCommand("getAuthCode", async (e) => {
+        try {
+          const data = await getAuthCodeViaPopup();
+          e.resolve({
+            authCode: data.authCode,
+            redirectUri: data.redirectUri,
+            codeVerifier: data.codeVerifier, // REQUIRED when PKCE enabled
+            nonce: data.nonce,               // OKTA: applicable
+            // maxAge: 0,                     // OKTA: optional if you use it
+            // iss: "..."                     // optional if your IdP returns it
+          });
+        } catch (err) {
+          console.error("getAuthCode failed:", err);
+          e.reject(err);
+        }
+      });
+
+      // This will be called by Messenger when it needs to refresh a token
+      AuthProvider.registerCommand("refreshToken", async (e) => {
+        try {
+          console.log("Messenger requesting token refresh...");
+          const newAuthData = await refreshTokenFlow(e.data.token);
+          console.log("Token refreshed successfully.");
+          e.resolve(newAuthData);
+        } catch (err) {
+          console.error("refreshToken failed:", err);
+          // If refresh fails, Messenger will call reAuthenticate as a fallback
+          e.reject(err);
+        }
+      });
+
+      // Called when refresh/auth context is no longer valid
+      AuthProvider.registerCommand("reAuthenticate", async (e) => {
+        try {
+          const data = await getAuthCodeViaPopup();
+          e.resolve({
+            authCode: data.authCode,
+            redirectUri: data.redirectUri,
+            codeVerifier: data.codeVerifier,
+            nonce: data.nonce,
+          });
+        } catch (err) {
+          console.error("reAuthenticate failed:", err);
+          e.reject(err);
+        }
+      });
+
+      // Optional: used with Step-up auth scenarios
+      AuthProvider.registerCommand("signIn", async (e) => {
+        try {
+          const data = await getAuthCodeViaPopup();
+          AuthProvider.publish("signedIn", data);
+          e.resolve(data);
+        } catch (err) {
+          AuthProvider.publish("signInFailed", err);
+          e.reject(err);
+        }
+      });
+
+      AuthProvider.subscribe("Auth.loggedOut", () => {
+        sessionStorage.removeItem("gc_pkce_verifier");
+        sessionStorage.removeItem("gc_oidc_state");
+        sessionStorage.removeItem("gc_oidc_nonce");
+      });
+
+      AuthProvider.subscribe("Auth.authError", (error) => {
+        console.warn("Messenger Auth.authError:", error);
+      });
+
+      AuthProvider.ready();
+    });
+  </script>
+</head>
+
+<body>
+  <h2>Scientific AI Application Support</h2>
+</body>
+</html>
