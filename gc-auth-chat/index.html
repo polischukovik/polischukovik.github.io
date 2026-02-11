@@ -137,7 +137,82 @@
 
     /**
      * ==========================================================
-     *  HANDLE REFRESH TOKEN FLOW
+     *  HANDLE SILENT REFRESH FLOW
+     * ==========================================================
+     */
+    async function getAuthCodeSilently() {
+      const codeVerifier = randomString(48);
+      const codeChallenge = await pkceChallengeFromVerifier(codeVerifier);
+
+      const state = randomString(24);
+      const nonce = crypto.randomUUID();
+
+      sessionStorage.setItem("gc_pkce_verifier", codeVerifier);
+      sessionStorage.setItem("gc_oidc_state", state);
+      sessionStorage.setItem("gc_oidc_nonce", nonce);
+
+      const url = new URL(AUTH_CONFIG.authorizationEndpoint);
+      url.searchParams.set("client_id", AUTH_CONFIG.clientId);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("scope", AUTH_CONFIG.scope);
+      url.searchParams.set("redirect_uri", AUTH_CONFIG.redirectUri);
+      url.searchParams.set("state", state);
+      url.searchParams.set("nonce", nonce);
+
+      // PKCE
+      url.searchParams.set("code_challenge", codeChallenge);
+      url.searchParams.set("code_challenge_method", "S256");
+
+      // Silent authentication parameters
+      url.searchParams.set("prompt", "none");
+      url.searchParams.set("response_mode", "query"); // Or 'fragment' depending on IdP
+
+      return new Promise((resolve, reject) => {
+        const iframe = document.createElement("iframe");
+        iframe.style.display = "none";
+        iframe.src = url.toString();
+
+        const timeout = setTimeout(() => {
+          document.body.removeChild(iframe);
+          reject(new Error("Silent refresh timed out."));
+        }, 10 * 1000); // 10 seconds timeout for silent refresh
+
+        window.addEventListener("message", function onMessage(event) {
+          // IMPORTANT: lock down in production:
+          // if (event.origin !== "https://YOUR-DOMAIN") return;
+
+          if (event.data && event.data.type === "GC_OIDC_CODE") {
+            clearTimeout(timeout);
+            window.removeEventListener("message", onMessage);
+            document.body.removeChild(iframe);
+
+            const result = event.data.payload;
+            const expectedState = sessionStorage.getItem("gc_oidc_state");
+
+            if (result.error) {
+              return reject(new Error(result.errorDescription || result.error || "Silent login failed."));
+            }
+
+            if (result.state !== expectedState) {
+              return reject(new Error("Invalid state returned from IdP (possible CSRF) during silent refresh."));
+            }
+
+            resolve({
+              authCode: result.code,
+              redirectUri: AUTH_CONFIG.redirectUri,
+              codeVerifier: sessionStorage.getItem("gc_pkce_verifier"),
+              nonce: sessionStorage.getItem("gc_oidc_nonce"),
+            });
+          }
+        });
+
+        document.body.appendChild(iframe);
+      });
+    }
+
+    /**
+     * ==========================================================
+     *  HANDLE REFRESH TOKEN FLOW (Genesys specific)
      * ==========================================================
      */
     async function refreshTokenFlow(refreshToken) {
@@ -209,40 +284,35 @@
       });
       console.log("Registered 'getAuthCode' command.");
 
-      // This will be called by Messenger when it needs to refresh a token
-      AuthProvider.registerCommand("refreshToken", async (e) => {
-        // Adding a debugger statement. If your browser's developer tools are open,
-        // execution will pause here when this command is called.
-        debugger;
-
-        console.log(">>> refreshToken command CALLED by Messenger.");
-        try {
-          console.log("Token from Messenger:", e.data.token ? "(present)" : "(not present)");
-          const newAuthData = await refreshTokenFlow(e.data.token);
-          console.log("Token refreshed successfully via refreshTokenFlow.", newAuthData);
-          e.resolve(newAuthData);
-        } catch (err) {
-          console.error("!!! refreshToken command FAILED.", err);
-          // If refresh fails, Messenger will call reAuthenticate as a fallback
-          e.reject(err);
-        }
-      });
-      console.log("Registered 'refreshToken' command.");
-
       // Called when refresh/auth context is no longer valid
       AuthProvider.registerCommand("reAuthenticate", async (e) => {
         console.log(">>> reAuthenticate command CALLED by Messenger.");
         try {
-          const data = await getAuthCodeViaPopup();
+          // First, try silent refresh
+          const data = await getAuthCodeSilently();
+          console.log("Silent re-authentication successful.");
           e.resolve({
             authCode: data.authCode,
             redirectUri: data.redirectUri,
             codeVerifier: data.codeVerifier,
             nonce: data.nonce,
           });
-        } catch (err) {
-          console.error("!!! reAuthenticate command FAILED.", err);
-          e.reject(err);
+        } catch (silentErr) {
+          console.warn("Silent re-authentication failed, falling back to popup:", silentErr);
+          try {
+            // If silent fails, fall back to popup login
+            const data = await getAuthCodeViaPopup();
+            console.log("Popup re-authentication successful.");
+            e.resolve({
+              authCode: data.authCode,
+              redirectUri: data.redirectUri,
+              codeVerifier: data.codeVerifier,
+              nonce: data.nonce,
+            });
+          } catch (popupErr) {
+            console.error("!!! reAuthenticate command FAILED after silent and popup attempts.", popupErr);
+            e.reject(popupErr);
+          }
         }
       });
       console.log("Registered 'reAuthenticate' command.");
