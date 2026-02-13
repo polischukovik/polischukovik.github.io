@@ -22,6 +22,7 @@
       // Optional: if you need a forced login each time
       // prompt: "login",
     };
+    const CALLBACK_ORIGIN = new URL(AUTH_CONFIG.redirectUri).origin;
 
     /**
      * ==========================================================
@@ -101,8 +102,8 @@
         }, 2 * 60 * 1000);
 
         function onMessage(event) {
-          // IMPORTANT: lock down in production:
-          // if (event.origin !== "https://YOUR-DOMAIN") return;
+          if (event.origin !== CALLBACK_ORIGIN) return;
+          if (event.source !== popup) return;
 
           if (!event.data || event.data.type !== "GC_OIDC_CODE") return;
           cleanup();
@@ -172,19 +173,23 @@
         iframe.style.display = "none";
         iframe.src = url.toString();
 
+        function cleanup() {
+          clearTimeout(timeout);
+          window.removeEventListener("message", onMessage);
+          if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        }
+
         const timeout = setTimeout(() => {
-          document.body.removeChild(iframe);
+          cleanup();
           reject(new Error("Silent refresh timed out."));
         }, 10 * 1000); // 10 seconds timeout for silent refresh
 
-        window.addEventListener("message", function onMessage(event) {
-          // IMPORTANT: lock down in production:
-          // if (event.origin !== "https://YOUR-DOMAIN") return;
+        function onMessage(event) {
+          if (event.origin !== CALLBACK_ORIGIN) return;
+          if (event.source !== iframe.contentWindow) return;
 
           if (event.data && event.data.type === "GC_OIDC_CODE") {
-            clearTimeout(timeout);
-            window.removeEventListener("message", onMessage);
-            document.body.removeChild(iframe);
+            cleanup();
 
             const result = event.data.payload;
             const expectedState = sessionStorage.getItem("gc_oidc_state");
@@ -204,7 +209,9 @@
               nonce: sessionStorage.getItem("gc_oidc_nonce"),
             });
           }
-        });
+        }
+
+        window.addEventListener("message", onMessage);
 
         document.body.appendChild(iframe);
       });
