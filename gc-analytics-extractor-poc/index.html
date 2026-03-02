@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Genesys Cloud PKCE POC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-a"></div>
+  <div class="bg-shape bg-shape-b"></div>
+
+  <main class="layout pkce-layout">
+    <header class="hero panel">
+      <p class="eyebrow">Frontend-Only POC</p>
+      <h1>Genesys Cloud PKCE Probe</h1>
+      <p class="subtitle">Use this page to validate browser-only OAuth without the backend.</p>
+    </header>
+
+    <section class="panel">
+      <h2>OAuth Settings</h2>
+      <form id="pkce-form" class="pkce-form">
+        <label>
+          <span>Genesys Cloud Environment</span>
+          <input id="environment" type="text" placeholder="mypurecloud.ie" autocomplete="off" required />
+        </label>
+
+        <label>
+          <span>OAuth Client ID</span>
+          <input id="client-id" type="text" placeholder="Your PKCE client id" autocomplete="off" required />
+        </label>
+
+        <label>
+          <span>Scopes</span>
+          <input id="scopes" type="text" value="analytics architect:readonly" autocomplete="off" required />
+        </label>
+
+        <label class="pkce-wide">
+          <span>Redirect URI</span>
+          <input id="redirect-uri" type="url" autocomplete="off" />
+        </label>
+
+        <div class="pkce-actions pkce-wide">
+          <button id="login-button" type="submit">Start PKCE Login</button>
+          <button id="exchange-button" type="button" class="secondary">Exchange Callback Code</button>
+          <button id="clear-button" type="button" class="secondary">Clear Local State</button>
+        </div>
+      </form>
+      <p class="small">Use the final hosted URL here. For GitHub Pages this should normally be this page's full URL.</p>
+      <p id="pkce-status" class="status"></p>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Detected Callback State</h2>
+        <p class="small" id="callback-meta"></p>
+      </div>
+      <pre id="callback-data" class="report">Waiting for redirect callback.</pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Token Exchange Result</h2>
+        <p class="small">Response body is summarized locally. Access token is partially redacted in view.</p>
+      </div>
+      <pre id="token-data" class="report">No token exchange attempted yet.</pre>
+    </section>
+
+    <section class="panel">
+      <h2>What This Proves</h2>
+      <ul class="pkce-list">
+        <li>Browser can generate PKCE verifier and challenge.</li>
+        <li>Genesys can redirect back to the static page with an authorization code.</li>
+        <li>Browser can exchange that code for tokens without a backend relay.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script type="module" src="./pkce-poc.js"></script>
+</body>
+</html>
