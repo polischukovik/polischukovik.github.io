@@ -70,11 +70,24 @@
     </section>
 
     <section class="panel">
+      <div class="section-head">
+        <h2>API Probe: Bot Aggregates</h2>
+        <p class="small">Direct browser call to <code>POST /api/v2/analytics/bots/aggregates/query</code>.</p>
+      </div>
+      <div class="pkce-actions">
+        <button id="probe-bot-aggregates-button" type="button">Probe Bot Aggregates</button>
+      </div>
+      <p id="api-probe-status" class="status"></p>
+      <pre id="api-probe-data" class="report">No API probe attempted yet.</pre>
+    </section>
+
+    <section class="panel">
       <h2>What This Proves</h2>
       <ul class="pkce-list">
         <li>Browser can generate PKCE verifier and challenge.</li>
         <li>Genesys can redirect back to the static page with an authorization code.</li>
         <li>Browser can exchange that code for tokens without a backend relay.</li>
+        <li>Browser can call a required Genesys analytics API directly with the access token.</li>
       </ul>
     </section>
   </main>

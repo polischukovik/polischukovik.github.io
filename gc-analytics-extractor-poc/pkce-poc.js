@@ -9,9 +9,13 @@ const statusLine = document.getElementById('pkce-status');
 const callbackMeta = document.getElementById('callback-meta');
 const callbackData = document.getElementById('callback-data');
 const tokenData = document.getElementById('token-data');
+const probeBotAggregatesButton = document.getElementById('probe-bot-aggregates-button');
+const apiProbeStatus = document.getElementById('api-probe-status');
+const apiProbeData = document.getElementById('api-probe-data');
 
 const STORAGE_KEY = 'genesys-pkce-poc';
 const PKCE_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
+const ACCESS_TOKEN_STORAGE_KEY = `${STORAGE_KEY}:accessToken`;
 
 function loadStoredConfig() {
   try {
@@ -35,6 +39,7 @@ function clearStoredState() {
   window.localStorage.removeItem(STORAGE_KEY);
   window.sessionStorage.removeItem(`${STORAGE_KEY}:state`);
   window.sessionStorage.removeItem(`${STORAGE_KEY}:verifier`);
+  window.sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
 }
 
 function setStatus(message, type = '') {
@@ -53,10 +58,28 @@ function getLoginBase(environment) {
   return `https://login.${normalizeEnvironment(environment)}`;
 }
 
+function getApiBase(environment) {
+  return `https://api.${normalizeEnvironment(environment)}`;
+}
+
 function ensureRedirectUri() {
   if (!redirectUriInput.value.trim()) {
     redirectUriInput.value = window.location.href.split('?')[0];
   }
+}
+
+function setApiProbeStatus(message, type = '') {
+  apiProbeStatus.textContent = message;
+  apiProbeStatus.className = `status ${type}`.trim();
+}
+
+function getStoredAccessToken() {
+  return window.sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+}
+
+function setStoredAccessToken(accessToken) {
+  if (!accessToken) return;
+  window.sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
 }
 
 function randomString(length = 64) {
@@ -117,6 +140,29 @@ function summarizeTokenResponse(data) {
   }
 
   return summarized;
+}
+
+function getYesterdayUtcInterval() {
+  const now = new Date();
+  const end = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    0,
+    0,
+    0,
+    0
+  ));
+  const start = new Date(end.getTime() - (24 * 60 * 60 * 1000));
+  return `${start.toISOString()}/${end.toISOString()}`;
+}
+
+function buildBotAggregatesProbeBody() {
+  return {
+    interval: getYesterdayUtcInterval(),
+    groupBy: ['botId', 'botName', 'botFlowType', 'botFlowSubType'],
+    metrics: ['nBotSessions', 'nBotSessionTurns', 'tBotSession'],
+  };
 }
 
 async function redirectToGenesysLogin() {
@@ -204,8 +250,62 @@ async function exchangeCallbackCode() {
     throw new Error(`Token exchange failed with status ${response.status}.`);
   }
 
+  setStoredAccessToken(payload.access_token);
   tokenData.textContent = JSON.stringify(summarizeTokenResponse(payload), null, 2);
   setStatus('Token exchange succeeded.', 'ok');
+}
+
+async function probeBotAggregates() {
+  const accessToken = getStoredAccessToken();
+  if (!accessToken) {
+    throw new Error('No access token is stored in this tab. Complete token exchange first.');
+  }
+
+  const environment = normalizeEnvironment(environmentInput.value);
+  if (!environment) {
+    throw new Error('Genesys Cloud environment is required.');
+  }
+
+  const body = buildBotAggregatesProbeBody();
+  setApiProbeStatus('Calling Genesys analytics API from the browser...', '');
+
+  let response;
+  try {
+    response = await fetch(`${getApiBase(environment)}/api/v2/analytics/bots/aggregates/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    apiProbeData.textContent = JSON.stringify({
+      request: body,
+      error: String(error),
+      note: 'A browser-level network/CORS failure prevents reading the response.',
+    }, null, 2);
+    throw new Error('Bot aggregates probe failed before receiving a response. This is usually a CORS or network issue.');
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  const results = Array.isArray(payload.results) ? payload.results : [];
+  const sample = results[0] || null;
+
+  apiProbeData.textContent = JSON.stringify({
+    request: body,
+    responseStatus: response.status,
+    resultCount: results.length,
+    sampleGroup: sample?.group || null,
+    sampleData: sample?.data || null,
+    rawKeys: Object.keys(payload),
+  }, null, 2);
+
+  if (!response.ok) {
+    throw new Error(`Bot aggregates probe failed with status ${response.status}.`);
+  }
+
+  setApiProbeStatus('Bot aggregates probe succeeded.', 'ok');
 }
 
 form.addEventListener('submit', async (event) => {
@@ -229,7 +329,17 @@ exchangeButton.addEventListener('click', async () => {
 clearButton.addEventListener('click', () => {
   clearStoredState();
   tokenData.textContent = 'Local PKCE state cleared.';
+  apiProbeData.textContent = 'No API probe attempted yet.';
+  setApiProbeStatus('', '');
   setStatus('Saved PKCE state cleared from this browser.', 'ok');
+});
+
+probeBotAggregatesButton.addEventListener('click', async () => {
+  try {
+    await probeBotAggregates();
+  } catch (error) {
+    setApiProbeStatus(error.message, 'error');
+  }
 });
 
 function boot() {
@@ -246,6 +356,10 @@ function boot() {
     setStatus('Authorization code detected. Click "Exchange Callback Code".', 'ok');
   } else {
     setStatus('Configure the OAuth client details, then start the PKCE flow.', '');
+  }
+
+  if (getStoredAccessToken()) {
+    setApiProbeStatus('Access token is present in this tab. You can run the API probe.', 'ok');
   }
 }
 
