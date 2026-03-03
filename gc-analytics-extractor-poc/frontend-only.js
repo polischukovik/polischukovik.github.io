@@ -211,35 +211,87 @@ async function runPipeline() {
     throw new Error(`Unsupported frontend pipeline "${pipelineName}".`);
   }
 
-  setStatus(pipelineStatus, 'Running botflowCost in the browser...', '');
-  const result = await runBotflowCostAggregate({
-    environment,
-    accessToken,
-    intervalInput,
-  });
-
-  const saved = await saveRun({
+  const runId = window.crypto.randomUUID();
+  const startedAt = new Date().toISOString();
+  const pendingRun = await saveRun({
+    id: runId,
     pipelineName: 'botflowCost',
-    status: 'completed',
+    status: 'running',
     providedInterval: intervalInput,
-    humanReadableInterval: result.interval,
-    durationMs: 0,
+    humanReadableInterval: intervalInput,
+    startedAt,
+    durationMs: null,
     reportFilename: null,
-    reportContent: result.reportContent,
-    summary: result.summary,
+    reportContent: 'Running botflowCost in the browser...',
+    summary: null,
     metadata: {
       source: 'frontend-only-shell',
-      mode: result.billingMode,
+      mode: 'pending',
     },
   });
 
   await refreshRuns();
-  await viewRun(saved.id);
+  await viewRun(pendingRun.id);
+  reportMeta.textContent = `Local Run ${pendingRun.id} • botflowCost`;
+  reportOutput.textContent = pendingRun.reportContent;
+  setStatus(pipelineStatus, 'Running botflowCost in the browser...', '');
 
-  reportMeta.textContent = `Local Run ${saved.id} • botflowCost`;
-  reportOutput.textContent = result.reportContent;
-  setStatus(pipelineStatus, `botflowCost completed in ${result.billingMode} mode and was saved locally.`, 'ok');
-  setStatus(runsStatus, `Saved botflowCost run ${saved.id}.`, 'ok');
+  try {
+    const result = await runBotflowCostAggregate({
+      environment,
+      accessToken,
+      intervalInput,
+    });
+
+    const completedRun = await saveRun({
+      id: runId,
+      pipelineName: 'botflowCost',
+      status: 'completed',
+      providedInterval: intervalInput,
+      humanReadableInterval: result.interval,
+      startedAt,
+      durationMs: Date.now() - new Date(startedAt).getTime(),
+      reportFilename: null,
+      reportContent: result.reportContent,
+      summary: result.summary,
+      metadata: {
+        source: 'frontend-only-shell',
+        mode: result.billingMode,
+      },
+    });
+
+    await refreshRuns();
+    await viewRun(completedRun.id);
+
+    reportMeta.textContent = `Local Run ${completedRun.id} • botflowCost`;
+    reportOutput.textContent = result.reportContent;
+    setStatus(pipelineStatus, `botflowCost completed in ${result.billingMode} mode and was saved locally.`, 'ok');
+    setStatus(runsStatus, `Saved botflowCost run ${completedRun.id}.`, 'ok');
+  } catch (error) {
+    const failedRun = await saveRun({
+      id: runId,
+      pipelineName: 'botflowCost',
+      status: 'failed',
+      providedInterval: intervalInput,
+      humanReadableInterval: intervalInput,
+      startedAt,
+      durationMs: Date.now() - new Date(startedAt).getTime(),
+      reportFilename: null,
+      reportContent: `Pipeline failed:\n${error.message}`,
+      summary: null,
+      metadata: {
+        source: 'frontend-only-shell',
+        mode: 'failed',
+      },
+    });
+
+    await refreshRuns();
+    await viewRun(failedRun.id);
+    reportMeta.textContent = `Local Run ${failedRun.id} • botflowCost`;
+    reportOutput.textContent = `Pipeline failed:\n${error.message}`;
+    setStatus(runsStatus, `Saved failed botflowCost run ${failedRun.id}.`, 'error');
+    throw error;
+  }
 }
 
 async function cleanupRuns() {
