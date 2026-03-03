@@ -7,6 +7,7 @@ const MAX_DETAIL_PAGE_SIZE = 250;
 const TURNS_PER_BILLING_UNIT = 8;
 const VOICE_BILLING_INCREMENT_SECONDS = 15;
 const DETAIL_RETENTION_DAYS = 10;
+const CALIBRATION_DAYS = 7;
 
 function normalizeEnvironment(value) {
   const trimmed = String(value || '').trim();
@@ -183,6 +184,13 @@ function determineBillingMode(interval) {
   return endDate.getTime() >= retentionCutoff ? 'recent' : 'historical';
 }
 
+function buildRecentCalibrationInterval(days = CALIBRATION_DAYS) {
+  const lookbackDays = Math.max(Number(days) || 1, 1);
+  const now = new Date();
+  const start = new Date(now.getTime() - (lookbackDays * 24 * 60 * 60 * 1000));
+  return `${start.toISOString()}/${now.toISOString()}`;
+}
+
 function buildFlowSeeds(response) {
   const rows = Array.isArray(response?.results) ? response.results : [];
   return rows
@@ -277,6 +285,19 @@ async function postJson(url, accessToken, body) {
     },
     body: JSON.stringify(body),
   });
+}
+
+async function fetchAggregateSeeds(environment, accessToken, interval) {
+  const response = await postJson(
+    `${getApiBase(environment)}/api/v2/analytics/bots/aggregates/query`,
+    accessToken,
+    {
+      interval,
+      ...BOT_AGGREGATE_QUERY,
+    }
+  );
+
+  return buildFlowSeeds(response);
 }
 
 async function getJson(url, accessToken) {
@@ -419,6 +440,7 @@ async function enrichFlow(environment, accessToken, seed, interval, billingMode)
             sessionCount: detail.sessionCount,
             turnCount: detail.totalTurns,
             billableUnits: detail.billableUnits,
+            effectiveBillableUnits: detail.billableUnits,
             billableUnitsSource: 'reportingturns',
           };
         }
@@ -432,6 +454,7 @@ async function enrichFlow(environment, accessToken, seed, interval, billingMode)
       sessionCount: seed.aggregateSessionCount,
       turnCount: seed.aggregateTurnCount,
       billableUnits: aggregateUnits,
+      effectiveBillableUnits: aggregateUnits,
       billableUnitsSource: 'aggregate-lower-bound',
     };
   }
@@ -447,6 +470,7 @@ async function enrichFlow(environment, accessToken, seed, interval, billingMode)
           sessionCount: detail.sessionCount,
           durationMs: detail.totalDurationMs,
           billableSeconds: detail.billableSeconds,
+          effectiveBillableSeconds: detail.billableSeconds,
           billableUnitsSource: 'sessions',
         };
       }
@@ -460,6 +484,7 @@ async function enrichFlow(environment, accessToken, seed, interval, billingMode)
     sessionCount: seed.aggregateSessionCount,
     durationMs: seed.aggregateDurationMs,
     billableSeconds: aggregateSeconds,
+    effectiveBillableSeconds: aggregateSeconds,
     billableUnitsSource: 'aggregate-lower-bound',
   };
 }
@@ -470,7 +495,8 @@ function summarizeDigitalFlows(flows) {
     totalFlows: scopedFlows.length,
     totalSessions: scopedFlows.reduce((sum, flow) => sum + flow.sessionCount, 0),
     totalTurns: scopedFlows.reduce((sum, flow) => sum + flow.turnCount, 0),
-    totalBillableUnits: scopedFlows.reduce((sum, flow) => sum + flow.billableUnits, 0),
+    totalBillableUnits: scopedFlows.reduce((sum, flow) => sum + (flow.effectiveBillableUnits ?? flow.billableUnits ?? 0), 0),
+    lowerBoundBillableUnits: scopedFlows.reduce((sum, flow) => sum + (flow.billableUnits || 0), 0),
     exactFlows: scopedFlows.filter((flow) => flow.billableUnitsSource === 'reportingturns').length,
   };
 }
@@ -486,6 +512,7 @@ function summarizeVoiceFlows(flows) {
     totalDurationMs,
     totalRuntimeMinutes: totalDurationMs / 60000,
     totalBillableSeconds,
+    lowerBoundBillableSeconds: scopedFlows.reduce((sum, flow) => sum + (flow.billableSeconds || 0), 0),
     totalBillableMinutes: totalBillableSeconds / 60,
     billedMinutesRounded: roundVoiceBillableMinutes(totalBillableSeconds),
     exactFlows: scopedFlows.filter((flow) => flow.billableUnitsSource === 'sessions').length,
@@ -495,34 +522,34 @@ function summarizeVoiceFlows(flows) {
 function buildDigitalDetailRows(flows, totalBillableUnits) {
   return flows
     .filter((flow) => flow.billingKind === 'digital')
-    .sort((a, b) => b.billableUnits - a.billableUnits)
+    .sort((a, b) => (b.effectiveBillableUnits ?? b.billableUnits) - (a.effectiveBillableUnits ?? a.billableUnits))
     .map((flow) => ({
       flowName: flow.name,
       flowType: flow.flowType || '-',
       sessions: flow.sessionCount,
       botSessionTurns: flow.turnCount,
-      billableUnits: flow.billableUnits,
+      billableUnits: formatNumber(flow.effectiveBillableUnits ?? flow.billableUnits, 2),
       source: flow.billableUnitsSource,
-      proportion: totalBillableUnits > 0 ? `${formatNumber((flow.billableUnits / totalBillableUnits) * 100)}%` : '0.00%',
+      proportion: totalBillableUnits > 0 ? `${formatNumber(((flow.effectiveBillableUnits ?? flow.billableUnits) / totalBillableUnits) * 100)}%` : '0.00%',
     }));
 }
 
 function buildVoiceDetailRows(flows, totalBillableSeconds) {
   return flows
     .filter((flow) => flow.billingKind === 'voice')
-    .sort((a, b) => b.billableSeconds - a.billableSeconds)
+    .sort((a, b) => (b.effectiveBillableSeconds ?? b.billableSeconds) - (a.effectiveBillableSeconds ?? a.billableSeconds))
     .map((flow) => ({
       flowName: flow.name,
       flowType: flow.flowType || '-',
       sessions: flow.sessionCount,
       runtimeMinutes: formatNumber(flow.durationMs / 60000),
-      billableMinutes: formatNumber(flow.billableSeconds / 60),
+      billableMinutes: formatNumber((flow.effectiveBillableSeconds ?? flow.billableSeconds) / 60),
       source: flow.billableUnitsSource,
-      proportion: totalBillableSeconds > 0 ? `${formatNumber((flow.billableSeconds / totalBillableSeconds) * 100)}%` : '0.00%',
+      proportion: totalBillableSeconds > 0 ? `${formatNumber(((flow.effectiveBillableSeconds ?? flow.billableSeconds) / totalBillableSeconds) * 100)}%` : '0.00%',
     }));
 }
 
-function generateReport(interval, billingMode, flows, digitalSummary, voiceSummary) {
+function generateReport(interval, billingMode, flows, digitalSummary, voiceSummary, calibration) {
   const recent = billingMode === 'recent';
   let report = 'Genesys Cloud Bot Flow Cost Report (Frontend-Only)\n';
   report += `Interval: ${interval}\n`;
@@ -530,7 +557,9 @@ function generateReport(interval, billingMode, flows, digitalSummary, voiceSumma
   report += `Mode: ${billingMode}\n\n`;
   report += recent
     ? 'Billing Model: Recent mode. Exact detail is used when available; aggregate lower-bound is used per flow as fallback.\n\n'
-    : 'Billing Model: Historical mode. Aggregate-only lower bound.\n\n';
+    : calibration.applied
+      ? 'Billing Model: Historical mode. Aggregate lower-bound adjusted by a recent exact calibration factor.\n\n'
+      : 'Billing Model: Historical mode. Aggregate-only lower bound.\n\n';
 
   report += '--- Overall Summary ---\n';
   report += `Voice Bot Flows: ${voiceSummary.totalFlows}\n`;
@@ -538,30 +567,42 @@ function generateReport(interval, billingMode, flows, digitalSummary, voiceSumma
   report += `Voice Runtime Minutes: ${formatNumber(voiceSummary.totalRuntimeMinutes)}\n`;
   report += recent
     ? `Voice Billable Minutes [Exact Where Available]: ${formatNumber(voiceSummary.totalBillableMinutes)}\n`
-    : `Voice Billable Minutes [Lower Bound]: ${formatNumber(voiceSummary.totalBillableMinutes)}\n`;
+    : calibration.voice.applied
+      ? `Voice Billable Minutes [Calibrated]: ${formatNumber(voiceSummary.totalBillableMinutes)}\n`
+      : `Voice Billable Minutes [Lower Bound]: ${formatNumber(voiceSummary.totalBillableMinutes)}\n`;
   report += `Voice Billed Minutes (Rounded): ${voiceSummary.billedMinutesRounded}\n`;
   if (recent) {
     report += `Voice Exact Flows: ${voiceSummary.exactFlows}/${voiceSummary.totalFlows}\n`;
+  } else if (calibration.voice.applied) {
+    report += `Voice Calibration Factor: ${formatNumber(calibration.voice.factor, 4)} (${formatNumber(calibration.voice.exactMinutes)} min / ${formatNumber(calibration.voice.lowerBoundMinutes)} min)\n`;
   }
   report += `Digital Bot Flows: ${digitalSummary.totalFlows}\n`;
   report += `Digital Sessions: ${digitalSummary.totalSessions}\n`;
   report += `Digital Bot Session Turns: ${digitalSummary.totalTurns}\n`;
   report += recent
     ? `Digital Billable Units [Exact Where Available]: ${digitalSummary.totalBillableUnits}\n`
-    : `Digital Billable Units [Lower Bound]: ${digitalSummary.totalBillableUnits}\n`;
+    : calibration.digital.applied
+      ? `Digital Billable Units [Calibrated]: ${formatNumber(digitalSummary.totalBillableUnits, 2)}\n`
+      : `Digital Billable Units [Lower Bound]: ${digitalSummary.totalBillableUnits}\n`;
   if (recent) {
     report += `Digital Exact Flows: ${digitalSummary.exactFlows}/${digitalSummary.totalFlows}\n`;
+  } else if (calibration.digital.applied) {
+    report += `Digital Calibration Factor: ${formatNumber(calibration.digital.factor, 4)} (${formatNumber(calibration.digital.exactUnits, 2)} / ${formatNumber(calibration.digital.lowerBoundUnits, 2)})\n`;
   }
   report += '\n';
 
   report += recent
     ? '--- Voice Flow Detail [Exact Where Available] ---\n'
-    : '--- Voice Flow Detail [Lower Bound] ---\n';
+    : calibration.voice.applied
+      ? '--- Voice Flow Detail [Calibrated] ---\n'
+      : '--- Voice Flow Detail [Lower Bound] ---\n';
   report += `${formatTable(buildVoiceDetailRows(flows, voiceSummary.totalBillableSeconds))}\n\n`;
 
   report += recent
     ? '--- Digital Flow Detail [Exact Where Available] ---\n'
-    : '--- Digital Flow Detail [Lower Bound] ---\n';
+    : calibration.digital.applied
+      ? '--- Digital Flow Detail [Calibrated] ---\n'
+      : '--- Digital Flow Detail [Lower Bound] ---\n';
   report += `${formatTable(buildDigitalDetailRows(flows, digitalSummary.totalBillableUnits))}\n`;
 
   return report;
@@ -618,6 +659,82 @@ function resolveInterval(input) {
   throw new Error(`Unsupported interval value "${input}". Use today, yesterday, thismonth, lastmonth, or an explicit interval.`);
 }
 
+async function buildCalibrationData(environment, accessToken) {
+  const calibrationInterval = buildRecentCalibrationInterval(CALIBRATION_DAYS);
+
+  try {
+    const seeds = await fetchAggregateSeeds(environment, accessToken, calibrationInterval);
+    const recentFlows = [];
+    for (const seed of seeds) {
+      recentFlows.push(await enrichFlow(environment, accessToken, seed, calibrationInterval, 'recent'));
+    }
+
+    const digitalFlows = recentFlows.filter((flow) => flow.billingKind === 'digital');
+    const digitalExactUnits = digitalFlows
+      .filter((flow) => flow.billableUnitsSource === 'reportingturns')
+      .reduce((sum, flow) => sum + (flow.billableUnits || 0), 0);
+    const digitalLowerBoundUnits = digitalFlows
+      .filter((flow) => flow.billableUnitsSource === 'reportingturns')
+      .reduce((sum, flow) => sum + calculateMinimumBillableUnits(flow.aggregateSessionCount, flow.aggregateTurnCount), 0);
+
+    const voiceFlows = recentFlows.filter((flow) => flow.billingKind === 'voice');
+    const voiceExactSeconds = voiceFlows
+      .filter((flow) => flow.billableUnitsSource === 'sessions')
+      .reduce((sum, flow) => sum + (flow.billableSeconds || 0), 0);
+    const voiceLowerBoundSeconds = voiceFlows
+      .filter((flow) => flow.billableUnitsSource === 'sessions')
+      .reduce((sum, flow) => sum + calculateMinimumVoiceBillableSeconds(flow.aggregateSessionCount, flow.aggregateDurationMs), 0);
+
+    return {
+      interval: calibrationInterval,
+      digital: {
+        applied: digitalExactUnits > 0 && digitalLowerBoundUnits > 0,
+        factor: digitalExactUnits > 0 && digitalLowerBoundUnits > 0 ? digitalExactUnits / digitalLowerBoundUnits : 1,
+        exactUnits: digitalExactUnits,
+        lowerBoundUnits: digitalLowerBoundUnits,
+      },
+      voice: {
+        applied: voiceExactSeconds > 0 && voiceLowerBoundSeconds > 0,
+        factor: voiceExactSeconds > 0 && voiceLowerBoundSeconds > 0 ? voiceExactSeconds / voiceLowerBoundSeconds : 1,
+        exactMinutes: voiceExactSeconds / 60,
+        lowerBoundMinutes: voiceLowerBoundSeconds / 60,
+      },
+    };
+  } catch {
+    return {
+      interval: calibrationInterval,
+      digital: { applied: false, factor: 1, exactUnits: 0, lowerBoundUnits: 0 },
+      voice: { applied: false, factor: 1, exactMinutes: 0, lowerBoundMinutes: 0 },
+    };
+  }
+}
+
+function applyCalibrationToFlows(flows, calibration, billingMode) {
+  if (billingMode !== 'historical') {
+    return flows.map((flow) => ({
+      ...flow,
+      effectiveBillableUnits: flow.effectiveBillableUnits ?? flow.billableUnits ?? 0,
+      effectiveBillableSeconds: flow.effectiveBillableSeconds ?? flow.billableSeconds ?? 0,
+    }));
+  }
+
+  return flows.map((flow) => {
+    if (flow.billingKind === 'digital') {
+      const factor = calibration.digital.applied ? calibration.digital.factor : 1;
+      return {
+        ...flow,
+        effectiveBillableUnits: (flow.billableUnits || 0) * factor,
+      };
+    }
+
+    const factor = calibration.voice.applied ? calibration.voice.factor : 1;
+    return {
+      ...flow,
+      effectiveBillableSeconds: (flow.billableSeconds || 0) * factor,
+    };
+  });
+}
+
 async function runBotflowCostAggregate(options) {
   const { environment, accessToken, intervalInput } = options || {};
   if (!accessToken) {
@@ -626,37 +743,36 @@ async function runBotflowCostAggregate(options) {
 
   const interval = resolveInterval(intervalInput || 'yesterday');
   const billingMode = determineBillingMode(interval);
-  const body = {
-    interval,
-    ...BOT_AGGREGATE_QUERY,
-  };
-
-  const response = await postJson(
-    `${getApiBase(environment)}/api/v2/analytics/bots/aggregates/query`,
-    accessToken,
-    body
-  );
-  const seeds = buildFlowSeeds(response);
+  const seeds = await fetchAggregateSeeds(environment, accessToken, interval);
   const flows = [];
 
   for (const seed of seeds) {
     flows.push(await enrichFlow(environment, accessToken, seed, interval, billingMode));
   }
 
-  const digitalSummary = summarizeDigitalFlows(flows);
-  const voiceSummary = summarizeVoiceFlows(flows);
-  const reportContent = generateReport(interval, billingMode, flows, digitalSummary, voiceSummary);
+  const calibration = billingMode === 'historical'
+    ? await buildCalibrationData(environment, accessToken)
+    : {
+        interval: null,
+        digital: { applied: false, factor: 1, exactUnits: 0, lowerBoundUnits: 0 },
+        voice: { applied: false, factor: 1, exactMinutes: 0, lowerBoundMinutes: 0 },
+      };
+  const calibratedFlows = applyCalibrationToFlows(flows, calibration, billingMode);
+  const digitalSummary = summarizeDigitalFlows(calibratedFlows);
+  const voiceSummary = summarizeVoiceFlows(calibratedFlows);
+  const reportContent = generateReport(interval, billingMode, calibratedFlows, digitalSummary, voiceSummary, calibration);
 
   return {
     interval,
     billingMode,
     reportContent,
-    flows,
+    flows: calibratedFlows,
     summary: {
       mode: billingMode,
       digital: digitalSummary,
       voice: voiceSummary,
-      totalFlows: flows.length,
+      totalFlows: calibratedFlows.length,
+      calibration,
     },
   };
 }
