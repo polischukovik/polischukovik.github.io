@@ -229,7 +229,7 @@ async function runPipeline() {
     summary: result.summary,
     metadata: {
       source: 'frontend-only-shell',
-      mode: 'aggregate-only',
+      mode: result.billingMode,
     },
   });
 
@@ -238,7 +238,7 @@ async function runPipeline() {
 
   reportMeta.textContent = `Local Run ${saved.id} • botflowCost`;
   reportOutput.textContent = result.reportContent;
-  setStatus(pipelineStatus, 'botflowCost completed in the browser and was saved locally.', 'ok');
+  setStatus(pipelineStatus, `botflowCost completed in ${result.billingMode} mode and was saved locally.`, 'ok');
   setStatus(runsStatus, `Saved botflowCost run ${saved.id}.`, 'ok');
 }
 
@@ -381,7 +381,7 @@ async function boot() {
     setStatus(configStatus, 'Cached config pointer found. Click "Resolve Config" to load the document.', 'ok');
   }
 
-  setStatus(pipelineStatus, 'Ready to run aggregate-only botflowCost.', '');
+  setStatus(pipelineStatus, 'Ready to run browser botflowCost.', '');
 }
 
 boot().catch((error) => {

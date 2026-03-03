@@ -3,8 +3,10 @@ const BOT_AGGREGATE_QUERY = {
   metrics: ['nBotSessions', 'nBotSessionTurns', 'tBotSession'],
 };
 
+const MAX_DETAIL_PAGE_SIZE = 250;
 const TURNS_PER_BILLING_UNIT = 8;
 const VOICE_BILLING_INCREMENT_SECONDS = 15;
+const DETAIL_RETENTION_DAYS = 10;
 
 function normalizeEnvironment(value) {
   const trimmed = String(value || '').trim();
@@ -142,6 +144,11 @@ function classifyBotFlow(type) {
   return null;
 }
 
+function calculateBillableUnits(turnCount) {
+  if (!turnCount || turnCount <= 0) return 0;
+  return Math.ceil(turnCount / TURNS_PER_BILLING_UNIT);
+}
+
 function calculateMinimumBillableUnits(sessionCount, totalTurns) {
   if (sessionCount <= 0 && totalTurns <= 0) return 0;
   return Math.max(sessionCount, Math.ceil(totalTurns / TURNS_PER_BILLING_UNIT));
@@ -165,6 +172,17 @@ function roundVoiceBillableMinutes(totalSeconds) {
   return Math.round(totalSeconds / 60);
 }
 
+function determineBillingMode(interval) {
+  const [, end] = String(interval || '').split('/');
+  const endDate = end ? new Date(end) : new Date();
+  if (Number.isNaN(endDate.getTime())) {
+    return 'recent';
+  }
+
+  const retentionCutoff = Date.now() - (DETAIL_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  return endDate.getTime() >= retentionCutoff ? 'recent' : 'historical';
+}
+
 function buildFlowSeeds(response) {
   const rows = Array.isArray(response?.results) ? response.results : [];
   return rows
@@ -174,9 +192,9 @@ function buildFlowSeeds(response) {
       const billingKind = classifyBotFlow(group.botFlowType || group.botFlowSubType);
       if (!billingKind) return null;
 
-      const sessionCount = guessSessionCount(metrics);
-      const turnCount = guessTurnCount(metrics);
-      const durationMs = guessDurationMs(metrics);
+      const aggregateSessionCount = guessSessionCount(metrics);
+      const aggregateTurnCount = guessTurnCount(metrics);
+      const aggregateDurationMs = guessDurationMs(metrics);
 
       return {
         id: group.botId || group.botFlowId || null,
@@ -184,49 +202,12 @@ function buildFlowSeeds(response) {
         flowType: group.botFlowType || null,
         flowSubType: group.botFlowSubType || null,
         billingKind,
-        sessionCount,
-        turnCount,
-        durationMs,
+        aggregateSessionCount,
+        aggregateTurnCount,
+        aggregateDurationMs,
       };
     })
     .filter(Boolean);
-}
-
-function summarizeFlows(flows, billingKind) {
-  const scopedFlows = flows.filter((flow) => flow.billingKind === billingKind);
-
-  if (billingKind === 'digital') {
-    const totalSessions = scopedFlows.reduce((sum, flow) => sum + flow.sessionCount, 0);
-    const totalTurns = scopedFlows.reduce((sum, flow) => sum + flow.turnCount, 0);
-    const totalBillableUnits = scopedFlows.reduce(
-      (sum, flow) => sum + calculateMinimumBillableUnits(flow.sessionCount, flow.turnCount),
-      0
-    );
-
-    return {
-      totalFlows: scopedFlows.length,
-      totalSessions,
-      totalTurns,
-      totalBillableUnits,
-    };
-  }
-
-  const totalSessions = scopedFlows.reduce((sum, flow) => sum + flow.sessionCount, 0);
-  const totalDurationMs = scopedFlows.reduce((sum, flow) => sum + flow.durationMs, 0);
-  const totalBillableSeconds = scopedFlows.reduce(
-    (sum, flow) => sum + calculateMinimumVoiceBillableSeconds(flow.sessionCount, flow.durationMs),
-    0
-  );
-
-  return {
-    totalFlows: scopedFlows.length,
-    totalSessions,
-    totalDurationMs,
-    totalRuntimeMinutes: totalDurationMs / 60000,
-    minimumBillableSeconds: totalBillableSeconds,
-    minimumBillableMinutes: totalBillableSeconds / 60,
-    billedMinutesRounded: roundVoiceBillableMinutes(totalBillableSeconds),
-  };
 }
 
 function formatNumber(value, digits = 2) {
@@ -255,69 +236,340 @@ function formatTable(rows) {
   ].join('\n');
 }
 
+function extractAfterCursor(response) {
+  const nextUri = response?.nextUri;
+  if (!nextUri) return null;
+
+  try {
+    const url = new URL(nextUri, 'https://api.example.invalid');
+    return url.searchParams.get('after');
+  } catch {
+    const match = nextUri.match(/[?&]after=([^&]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+}
+
+async function requestJson(url, options) {
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    throw new Error(`Request failed before receiving a response: ${String(error)}`);
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload?.message || payload?.error || `Request failed with status ${response.status}.`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
+async function postJson(url, accessToken, body) {
+  return requestJson(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function getJson(url, accessToken) {
+  return requestJson(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+}
+
+function extractCollection(response) {
+  if (Array.isArray(response?.entities)) return response.entities;
+  if (Array.isArray(response?.results)) return response.results;
+  if (Array.isArray(response?.items)) return response.items;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response)) return response;
+  return [];
+}
+
+function extractReportingTurnSessions(response) {
+  const entities = extractCollection(response);
+  return entities
+    .map((entity, index) => {
+      const sessionId = entity?.sessionId || null;
+      if (!sessionId) return null;
+
+      const turnCount = typeof entity?.turnCount === 'number'
+        ? entity.turnCount
+        : typeof entity?.reportingTurnCount === 'number'
+          ? entity.reportingTurnCount
+          : 1;
+
+      return {
+        sessionId,
+        turnCount,
+        rowId: entity?.id || `${sessionId}-${index}`,
+      };
+    })
+    .filter(Boolean);
+}
+
+function extractVoiceSessions(response) {
+  const entities = extractCollection(response);
+  return entities
+    .map((entity, index) => {
+      const start = entity?.dateCreated ? new Date(entity.dateCreated) : null;
+      const end = entity?.dateCompleted ? new Date(entity.dateCompleted) : null;
+      if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return null;
+      }
+
+      const durationMs = Math.max(0, end.getTime() - start.getTime());
+      const billableSeconds = roundUpToIncrement(durationMs / 1000, VOICE_BILLING_INCREMENT_SECONDS);
+
+      return {
+        sessionId: entity?.id || entity?.sessionId || `session-${index}`,
+        durationMs,
+        billableSeconds,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function getReportingTurnDetail(environment, accessToken, botFlowId, interval) {
+  const sessionUsageMap = new Map();
+  let after = null;
+
+  while (true) {
+    const url = new URL(
+      `${getApiBase(environment)}/api/v2/analytics/botflows/${encodeURIComponent(botFlowId)}/divisions/reportingturns`
+    );
+    url.searchParams.set('interval', interval);
+    url.searchParams.set('pageSize', String(MAX_DETAIL_PAGE_SIZE));
+    if (after) url.searchParams.set('after', after);
+
+    const response = await getJson(url.toString(), accessToken);
+    const pageSessions = extractReportingTurnSessions(response);
+    for (const session of pageSessions) {
+      sessionUsageMap.set(session.sessionId, (sessionUsageMap.get(session.sessionId) || 0) + session.turnCount);
+    }
+
+    after = extractAfterCursor(response);
+    if (!after) break;
+  }
+
+  const sessions = Array.from(sessionUsageMap.entries()).map(([sessionId, turnCount]) => ({
+    sessionId,
+    turnCount,
+    billableUnits: calculateBillableUnits(turnCount),
+  }));
+
+  return {
+    hasExactData: sessions.length > 0,
+    sessions,
+    sessionCount: sessions.length,
+    totalTurns: sessions.reduce((sum, session) => sum + session.turnCount, 0),
+    billableUnits: sessions.reduce((sum, session) => sum + session.billableUnits, 0),
+  };
+}
+
+async function getVoiceSessionDetail(environment, accessToken, botFlowId, interval) {
+  const sessions = [];
+  let after = null;
+
+  while (true) {
+    const url = new URL(
+      `${getApiBase(environment)}/api/v2/analytics/botflows/${encodeURIComponent(botFlowId)}/sessions`
+    );
+    url.searchParams.set('interval', interval);
+    url.searchParams.set('pageSize', String(MAX_DETAIL_PAGE_SIZE));
+    if (after) url.searchParams.set('after', after);
+
+    const response = await getJson(url.toString(), accessToken);
+    sessions.push(...extractVoiceSessions(response));
+
+    after = extractAfterCursor(response);
+    if (!after) break;
+  }
+
+  return {
+    hasExactData: sessions.length > 0,
+    sessions,
+    sessionCount: sessions.length,
+    totalDurationMs: sessions.reduce((sum, session) => sum + session.durationMs, 0),
+    billableSeconds: sessions.reduce((sum, session) => sum + session.billableSeconds, 0),
+  };
+}
+
+async function enrichFlow(environment, accessToken, seed, interval, billingMode) {
+  if (seed.billingKind === 'digital') {
+    const aggregateUnits = calculateMinimumBillableUnits(seed.aggregateSessionCount, seed.aggregateTurnCount);
+
+    if (billingMode === 'recent') {
+      try {
+        const detail = await getReportingTurnDetail(environment, accessToken, seed.id, interval);
+        if (detail.hasExactData) {
+          return {
+            ...seed,
+            sessionCount: detail.sessionCount,
+            turnCount: detail.totalTurns,
+            billableUnits: detail.billableUnits,
+            billableUnitsSource: 'reportingturns',
+          };
+        }
+      } catch (error) {
+        // Fall back to aggregate lower bound for this flow.
+      }
+    }
+
+    return {
+      ...seed,
+      sessionCount: seed.aggregateSessionCount,
+      turnCount: seed.aggregateTurnCount,
+      billableUnits: aggregateUnits,
+      billableUnitsSource: 'aggregate-lower-bound',
+    };
+  }
+
+  const aggregateSeconds = calculateMinimumVoiceBillableSeconds(seed.aggregateSessionCount, seed.aggregateDurationMs);
+
+  if (billingMode === 'recent') {
+    try {
+      const detail = await getVoiceSessionDetail(environment, accessToken, seed.id, interval);
+      if (detail.hasExactData) {
+        return {
+          ...seed,
+          sessionCount: detail.sessionCount,
+          durationMs: detail.totalDurationMs,
+          billableSeconds: detail.billableSeconds,
+          billableUnitsSource: 'sessions',
+        };
+      }
+    } catch (error) {
+      // Fall back to aggregate lower bound for this flow.
+    }
+  }
+
+  return {
+    ...seed,
+    sessionCount: seed.aggregateSessionCount,
+    durationMs: seed.aggregateDurationMs,
+    billableSeconds: aggregateSeconds,
+    billableUnitsSource: 'aggregate-lower-bound',
+  };
+}
+
+function summarizeDigitalFlows(flows) {
+  const scopedFlows = flows.filter((flow) => flow.billingKind === 'digital');
+  return {
+    totalFlows: scopedFlows.length,
+    totalSessions: scopedFlows.reduce((sum, flow) => sum + flow.sessionCount, 0),
+    totalTurns: scopedFlows.reduce((sum, flow) => sum + flow.turnCount, 0),
+    totalBillableUnits: scopedFlows.reduce((sum, flow) => sum + flow.billableUnits, 0),
+    exactFlows: scopedFlows.filter((flow) => flow.billableUnitsSource === 'reportingturns').length,
+  };
+}
+
+function summarizeVoiceFlows(flows) {
+  const scopedFlows = flows.filter((flow) => flow.billingKind === 'voice');
+  const totalBillableSeconds = scopedFlows.reduce((sum, flow) => sum + flow.billableSeconds, 0);
+  const totalDurationMs = scopedFlows.reduce((sum, flow) => sum + flow.durationMs, 0);
+
+  return {
+    totalFlows: scopedFlows.length,
+    totalSessions: scopedFlows.reduce((sum, flow) => sum + flow.sessionCount, 0),
+    totalDurationMs,
+    totalRuntimeMinutes: totalDurationMs / 60000,
+    totalBillableSeconds,
+    totalBillableMinutes: totalBillableSeconds / 60,
+    billedMinutesRounded: roundVoiceBillableMinutes(totalBillableSeconds),
+    exactFlows: scopedFlows.filter((flow) => flow.billableUnitsSource === 'sessions').length,
+  };
+}
+
 function buildDigitalDetailRows(flows, totalBillableUnits) {
   return flows
     .filter((flow) => flow.billingKind === 'digital')
-    .sort((a, b) => calculateMinimumBillableUnits(b.sessionCount, b.turnCount) - calculateMinimumBillableUnits(a.sessionCount, a.turnCount))
-    .map((flow) => {
-      const billableUnits = calculateMinimumBillableUnits(flow.sessionCount, flow.turnCount);
-      return {
-        flowName: flow.name,
-        flowType: flow.flowType || '-',
-        sessions: flow.sessionCount,
-        botSessionTurns: flow.turnCount,
-        billableUnits,
-        proportion: totalBillableUnits > 0 ? `${formatNumber((billableUnits / totalBillableUnits) * 100)}%` : '0.00%',
-      };
-    });
+    .sort((a, b) => b.billableUnits - a.billableUnits)
+    .map((flow) => ({
+      flowName: flow.name,
+      flowType: flow.flowType || '-',
+      sessions: flow.sessionCount,
+      botSessionTurns: flow.turnCount,
+      billableUnits: flow.billableUnits,
+      source: flow.billableUnitsSource,
+      proportion: totalBillableUnits > 0 ? `${formatNumber((flow.billableUnits / totalBillableUnits) * 100)}%` : '0.00%',
+    }));
 }
 
 function buildVoiceDetailRows(flows, totalBillableSeconds) {
   return flows
     .filter((flow) => flow.billingKind === 'voice')
-    .sort((a, b) => calculateMinimumVoiceBillableSeconds(b.sessionCount, b.durationMs) - calculateMinimumVoiceBillableSeconds(a.sessionCount, a.durationMs))
-    .map((flow) => {
-      const billableSeconds = calculateMinimumVoiceBillableSeconds(flow.sessionCount, flow.durationMs);
-      const billableMinutes = billableSeconds / 60;
-      return {
-        flowName: flow.name,
-        flowType: flow.flowType || '-',
-        sessions: flow.sessionCount,
-        runtimeMinutes: formatNumber(flow.durationMs / 60000),
-        billableMinutes: formatNumber(billableMinutes),
-        proportion: totalBillableSeconds > 0 ? `${formatNumber((billableSeconds / totalBillableSeconds) * 100)}%` : '0.00%',
-      };
-    });
+    .sort((a, b) => b.billableSeconds - a.billableSeconds)
+    .map((flow) => ({
+      flowName: flow.name,
+      flowType: flow.flowType || '-',
+      sessions: flow.sessionCount,
+      runtimeMinutes: formatNumber(flow.durationMs / 60000),
+      billableMinutes: formatNumber(flow.billableSeconds / 60),
+      source: flow.billableUnitsSource,
+      proportion: totalBillableSeconds > 0 ? `${formatNumber((flow.billableSeconds / totalBillableSeconds) * 100)}%` : '0.00%',
+    }));
 }
 
-function generateReport(interval, flows, digitalSummary, voiceSummary) {
-  let report = 'Genesys Cloud Bot Flow Cost Report (Frontend-Only Aggregate Mode)\n';
+function generateReport(interval, billingMode, flows, digitalSummary, voiceSummary) {
+  const recent = billingMode === 'recent';
+  let report = 'Genesys Cloud Bot Flow Cost Report (Frontend-Only)\n';
   report += `Interval: ${interval}\n`;
-  report += `Generated On: ${new Date().toISOString()}\n\n`;
-  report += 'Billing Model: Aggregate-only lower bound. Exact recent-mode detail is not yet wired into this frontend shell.\n\n';
+  report += `Generated On: ${new Date().toISOString()}\n`;
+  report += `Mode: ${billingMode}\n\n`;
+  report += recent
+    ? 'Billing Model: Recent mode. Exact detail is used when available; aggregate lower-bound is used per flow as fallback.\n\n'
+    : 'Billing Model: Historical mode. Aggregate-only lower bound.\n\n';
 
   report += '--- Overall Summary ---\n';
   report += `Voice Bot Flows: ${voiceSummary.totalFlows}\n`;
   report += `Voice Sessions: ${voiceSummary.totalSessions}\n`;
   report += `Voice Runtime Minutes: ${formatNumber(voiceSummary.totalRuntimeMinutes)}\n`;
-  report += `Voice Billable Minutes [Lower Bound]: ${formatNumber(voiceSummary.minimumBillableMinutes)}\n`;
+  report += recent
+    ? `Voice Billable Minutes [Exact Where Available]: ${formatNumber(voiceSummary.totalBillableMinutes)}\n`
+    : `Voice Billable Minutes [Lower Bound]: ${formatNumber(voiceSummary.totalBillableMinutes)}\n`;
   report += `Voice Billed Minutes (Rounded): ${voiceSummary.billedMinutesRounded}\n`;
+  if (recent) {
+    report += `Voice Exact Flows: ${voiceSummary.exactFlows}/${voiceSummary.totalFlows}\n`;
+  }
   report += `Digital Bot Flows: ${digitalSummary.totalFlows}\n`;
   report += `Digital Sessions: ${digitalSummary.totalSessions}\n`;
   report += `Digital Bot Session Turns: ${digitalSummary.totalTurns}\n`;
-  report += `Digital Billable Units [Lower Bound]: ${digitalSummary.totalBillableUnits}\n\n`;
+  report += recent
+    ? `Digital Billable Units [Exact Where Available]: ${digitalSummary.totalBillableUnits}\n`
+    : `Digital Billable Units [Lower Bound]: ${digitalSummary.totalBillableUnits}\n`;
+  if (recent) {
+    report += `Digital Exact Flows: ${digitalSummary.exactFlows}/${digitalSummary.totalFlows}\n`;
+  }
+  report += '\n';
 
-  report += '--- Voice Flow Detail [Lower Bound] ---\n';
-  report += `${formatTable(buildVoiceDetailRows(flows, voiceSummary.minimumBillableSeconds))}\n\n`;
+  report += recent
+    ? '--- Voice Flow Detail [Exact Where Available] ---\n'
+    : '--- Voice Flow Detail [Lower Bound] ---\n';
+  report += `${formatTable(buildVoiceDetailRows(flows, voiceSummary.totalBillableSeconds))}\n\n`;
 
-  report += '--- Digital Flow Detail [Lower Bound] ---\n';
+  report += recent
+    ? '--- Digital Flow Detail [Exact Where Available] ---\n'
+    : '--- Digital Flow Detail [Lower Bound] ---\n';
   report += `${formatTable(buildDigitalDetailRows(flows, digitalSummary.totalBillableUnits))}\n`;
 
   return report;
 }
 
 function resolveInterval(input) {
-  const value = String(input || '').trim().toLowerCase();
+  const raw = String(input || '').trim();
+  const value = raw.toLowerCase();
   const now = new Date();
 
   const startOfUtcDay = (date) => new Date(Date.UTC(
@@ -327,8 +579,8 @@ function resolveInterval(input) {
     0, 0, 0, 0
   ));
 
-  if (value.includes('/')) {
-    const [left, right] = value.split('/');
+  if (raw.includes('/')) {
+    const [left, right] = raw.split('/');
     const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(left) && /^\d{4}-\d{2}-\d{2}$/.test(right);
     if (isDateOnly) {
       const start = new Date(`${left}T00:00:00.000Z`);
@@ -336,7 +588,7 @@ function resolveInterval(input) {
       endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
       return `${start.toISOString()}/${endExclusive.toISOString()}`;
     }
-    return value;
+    return raw;
   }
 
   if (value === 'today') {
@@ -366,29 +618,6 @@ function resolveInterval(input) {
   throw new Error(`Unsupported interval value "${input}". Use today, yesterday, thismonth, lastmonth, or an explicit interval.`);
 }
 
-async function postJson(url, accessToken, body) {
-  let response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (error) {
-    throw new Error(`Request failed before receiving a response: ${String(error)}`);
-  }
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.error || `Request failed with status ${response.status}.`);
-  }
-
-  return payload;
-}
-
 async function runBotflowCostAggregate(options) {
   const { environment, accessToken, intervalInput } = options || {};
   if (!accessToken) {
@@ -396,6 +625,7 @@ async function runBotflowCostAggregate(options) {
   }
 
   const interval = resolveInterval(intervalInput || 'yesterday');
+  const billingMode = determineBillingMode(interval);
   const body = {
     interval,
     ...BOT_AGGREGATE_QUERY,
@@ -406,17 +636,24 @@ async function runBotflowCostAggregate(options) {
     accessToken,
     body
   );
-  const flows = buildFlowSeeds(response);
-  const digitalSummary = summarizeFlows(flows, 'digital');
-  const voiceSummary = summarizeFlows(flows, 'voice');
-  const reportContent = generateReport(interval, flows, digitalSummary, voiceSummary);
+  const seeds = buildFlowSeeds(response);
+  const flows = [];
+
+  for (const seed of seeds) {
+    flows.push(await enrichFlow(environment, accessToken, seed, interval, billingMode));
+  }
+
+  const digitalSummary = summarizeDigitalFlows(flows);
+  const voiceSummary = summarizeVoiceFlows(flows);
+  const reportContent = generateReport(interval, billingMode, flows, digitalSummary, voiceSummary);
 
   return {
     interval,
+    billingMode,
     reportContent,
     flows,
     summary: {
-      mode: 'aggregate-only',
+      mode: billingMode,
       digital: digitalSummary,
       voice: voiceSummary,
       totalFlows: flows.length,
