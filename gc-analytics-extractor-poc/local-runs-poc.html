@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local Runs POC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-a"></div>
+  <div class="bg-shape bg-shape-b"></div>
+
+  <main class="layout pkce-layout">
+    <header class="hero panel">
+      <p class="eyebrow">Frontend-Only POC</p>
+      <h1>Local Last Runs Probe</h1>
+      <p class="subtitle">Validate IndexedDB storage for local run history and cached reports.</p>
+    </header>
+
+    <section class="panel">
+      <h2>Create Mock Run</h2>
+      <form id="run-form" class="pkce-form">
+        <label>
+          <span>Pipeline</span>
+          <select id="pipeline-name">
+            <option value="botflowCost">botflowCost</option>
+            <option value="smsCost">smsCost</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Status</span>
+          <select id="run-status">
+            <option value="completed">completed</option>
+            <option value="running">running</option>
+            <option value="failed">failed</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Interval</span>
+          <input id="run-interval" type="text" value="yesterday" />
+        </label>
+
+        <label>
+          <span>Retention Days</span>
+          <input id="retention-days" type="number" min="1" value="30" />
+        </label>
+
+        <label class="pkce-wide">
+          <span>Report Content</span>
+          <textarea id="report-content-input" class="report" rows="8">Sample report content for IndexedDB testing.</textarea>
+        </label>
+
+        <div class="pkce-actions pkce-wide">
+          <button type="submit">Save Mock Run</button>
+          <button id="cleanup-button" type="button" class="secondary">Run TTL Cleanup</button>
+          <button id="clear-button" type="button" class="secondary">Clear All Runs</button>
+        </div>
+      </form>
+      <p id="page-status" class="status"></p>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Local Last Runs</h2>
+        <button id="refresh-button" type="button" class="secondary">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Pipeline</th>
+              <th>Status</th>
+              <th>Interval</th>
+              <th>Started</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="runs-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Selected Run</h2>
+        <p id="selected-meta" class="small"></p>
+      </div>
+      <pre id="selected-report" class="report">Select a run to inspect local cached content.</pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Store Diagnostics</h2>
+        <p class="small">Shows cleanup and persistence behavior.</p>
+      </div>
+      <pre id="diagnostics" class="report">No diagnostics yet.</pre>
+    </section>
+  </main>
+
+  <script type="module" src="./local-runs-poc.js"></script>
+</body>
+</html>
