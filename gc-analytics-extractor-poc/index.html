@@ -82,12 +82,38 @@
     </section>
 
     <section class="panel">
+      <div class="section-head">
+        <h2>API Probe: Bot Flow Detail</h2>
+        <p class="small">Direct browser calls to the exact-detail endpoints used by the pipeline.</p>
+      </div>
+      <div class="pkce-form">
+        <label>
+          <span>Bot Flow ID</span>
+          <input id="bot-flow-id" type="text" placeholder="071206f5-a178-4374-b29f-caaa4158f7c2" autocomplete="off" />
+        </label>
+
+        <label>
+          <span>Interval</span>
+          <input id="probe-interval" type="text" placeholder="2026-03-01T00:00:00.000Z/2026-03-02T00:00:00.000Z" autocomplete="off" />
+        </label>
+
+        <div class="pkce-actions pkce-wide">
+          <button id="probe-reportingturns-button" type="button">Probe Reporting Turns</button>
+          <button id="probe-sessions-button" type="button" class="secondary">Probe Sessions</button>
+        </div>
+      </div>
+      <p id="detail-probe-status" class="status"></p>
+      <pre id="detail-probe-data" class="report">No detail probe attempted yet.</pre>
+    </section>
+
+    <section class="panel">
       <h2>What This Proves</h2>
       <ul class="pkce-list">
         <li>Browser can generate PKCE verifier and challenge.</li>
         <li>Genesys can redirect back to the static page with an authorization code.</li>
         <li>Browser can exchange that code for tokens without a backend relay.</li>
         <li>Browser can call a required Genesys analytics API directly with the access token.</li>
+        <li>Browser can call the exact bot flow detail endpoints needed for recent-mode calculations.</li>
       </ul>
     </section>
   </main>

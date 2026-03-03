@@ -12,6 +12,12 @@ const tokenData = document.getElementById('token-data');
 const probeBotAggregatesButton = document.getElementById('probe-bot-aggregates-button');
 const apiProbeStatus = document.getElementById('api-probe-status');
 const apiProbeData = document.getElementById('api-probe-data');
+const botFlowIdInput = document.getElementById('bot-flow-id');
+const probeIntervalInput = document.getElementById('probe-interval');
+const probeReportingTurnsButton = document.getElementById('probe-reportingturns-button');
+const probeSessionsButton = document.getElementById('probe-sessions-button');
+const detailProbeStatus = document.getElementById('detail-probe-status');
+const detailProbeData = document.getElementById('detail-probe-data');
 
 const STORAGE_KEY = 'genesys-pkce-poc';
 const PKCE_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
@@ -31,6 +37,8 @@ function saveStoredConfig() {
     clientId: clientIdInput.value.trim(),
     scopes: scopesInput.value.trim(),
     redirectUri: redirectUriInput.value.trim(),
+    botFlowId: botFlowIdInput.value.trim(),
+    probeInterval: probeIntervalInput.value.trim(),
   };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
@@ -71,6 +79,11 @@ function ensureRedirectUri() {
 function setApiProbeStatus(message, type = '') {
   apiProbeStatus.textContent = message;
   apiProbeStatus.className = `status ${type}`.trim();
+}
+
+function setDetailProbeStatus(message, type = '') {
+  detailProbeStatus.textContent = message;
+  detailProbeStatus.className = `status ${type}`.trim();
 }
 
 function getStoredAccessToken() {
@@ -159,10 +172,42 @@ function getYesterdayUtcInterval() {
 
 function buildBotAggregatesProbeBody() {
   return {
-    interval: getYesterdayUtcInterval(),
+    interval: getProbeInterval(),
     groupBy: ['botId', 'botName', 'botFlowType', 'botFlowSubType'],
     metrics: ['nBotSessions', 'nBotSessionTurns', 'tBotSession'],
   };
+}
+
+function getProbeInterval() {
+  const configured = probeIntervalInput.value.trim();
+  if (configured) {
+    return configured;
+  }
+  const interval = getYesterdayUtcInterval();
+  probeIntervalInput.value = interval;
+  return interval;
+}
+
+function ensureDetailProbeInputs() {
+  const accessToken = getStoredAccessToken();
+  if (!accessToken) {
+    throw new Error('No access token is stored in this tab. Complete token exchange first.');
+  }
+
+  const environment = normalizeEnvironment(environmentInput.value);
+  if (!environment) {
+    throw new Error('Genesys Cloud environment is required.');
+  }
+
+  const botFlowId = botFlowIdInput.value.trim();
+  if (!botFlowId) {
+    throw new Error('Bot Flow ID is required for detail probes.');
+  }
+
+  const interval = getProbeInterval();
+  saveStoredConfig();
+
+  return { accessToken, environment, botFlowId, interval };
 }
 
 async function redirectToGenesysLogin() {
@@ -308,6 +353,54 @@ async function probeBotAggregates() {
   setApiProbeStatus('Bot aggregates probe succeeded.', 'ok');
 }
 
+async function probeBotFlowDetail(kind) {
+  const { accessToken, environment, botFlowId, interval } = ensureDetailProbeInputs();
+  const endpoint = kind === 'reportingturns'
+    ? `/api/v2/analytics/botflows/${encodeURIComponent(botFlowId)}/divisions/reportingturns`
+    : `/api/v2/analytics/botflows/${encodeURIComponent(botFlowId)}/sessions`;
+  const url = new URL(`${getApiBase(environment)}${endpoint}`);
+  url.searchParams.set('interval', interval);
+
+  setDetailProbeStatus(`Calling ${kind} from the browser...`, '');
+
+  let response;
+  try {
+    response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  } catch (error) {
+    detailProbeData.textContent = JSON.stringify({
+      endpoint: url.toString(),
+      error: String(error),
+      note: 'A browser-level network/CORS failure prevents reading the response.',
+    }, null, 2);
+    throw new Error(`${kind} probe failed before receiving a response. This is usually a CORS or network issue.`);
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  const entities = Array.isArray(payload.entities) ? payload.entities : [];
+  const sample = entities[0] || null;
+
+  detailProbeData.textContent = JSON.stringify({
+    kind,
+    endpoint: url.toString(),
+    responseStatus: response.status,
+    entityCount: entities.length,
+    sampleKeys: sample ? Object.keys(sample) : [],
+    sampleEntity: sample,
+    rawKeys: Object.keys(payload),
+  }, null, 2);
+
+  if (!response.ok) {
+    throw new Error(`${kind} probe failed with status ${response.status}.`);
+  }
+
+  setDetailProbeStatus(`${kind} probe succeeded.`, 'ok');
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
 
@@ -330,7 +423,9 @@ clearButton.addEventListener('click', () => {
   clearStoredState();
   tokenData.textContent = 'Local PKCE state cleared.';
   apiProbeData.textContent = 'No API probe attempted yet.';
+  detailProbeData.textContent = 'No detail probe attempted yet.';
   setApiProbeStatus('', '');
+  setDetailProbeStatus('', '');
   setStatus('Saved PKCE state cleared from this browser.', 'ok');
 });
 
@@ -342,6 +437,22 @@ probeBotAggregatesButton.addEventListener('click', async () => {
   }
 });
 
+probeReportingTurnsButton.addEventListener('click', async () => {
+  try {
+    await probeBotFlowDetail('reportingturns');
+  } catch (error) {
+    setDetailProbeStatus(error.message, 'error');
+  }
+});
+
+probeSessionsButton.addEventListener('click', async () => {
+  try {
+    await probeBotFlowDetail('sessions');
+  } catch (error) {
+    setDetailProbeStatus(error.message, 'error');
+  }
+});
+
 function boot() {
   const stored = loadStoredConfig();
 
@@ -349,6 +460,8 @@ function boot() {
   clientIdInput.value = stored.clientId || '';
   scopesInput.value = stored.scopes || 'analytics architect:readonly';
   redirectUriInput.value = stored.redirectUri || window.location.href.split('?')[0];
+  botFlowIdInput.value = stored.botFlowId || '';
+  probeIntervalInput.value = stored.probeInterval || getYesterdayUtcInterval();
 
   renderCallbackState();
 
