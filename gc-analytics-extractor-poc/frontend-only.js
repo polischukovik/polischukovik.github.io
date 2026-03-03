@@ -17,6 +17,7 @@ import {
   loadCachedConfigPointer,
   loadFrontendConfig,
 } from './frontend-config-resolver.js';
+import { runBotflowCostAggregate } from './frontend-botflow.js';
 import {
   DEFAULT_RETENTION_DAYS,
   clearAllRuns,
@@ -39,6 +40,10 @@ const resolveConfigButton = document.getElementById('resolve-config-button');
 const clearConfigPointerButton = document.getElementById('clear-config-pointer-button');
 const configStatus = document.getElementById('config-status');
 const configOutput = document.getElementById('config-output');
+const pipelineForm = document.getElementById('pipeline-form');
+const pipelineNameSelect = document.getElementById('pipeline-name');
+const pipelineIntervalInput = document.getElementById('pipeline-interval');
+const pipelineStatus = document.getElementById('pipeline-status');
 const saveSnapshotButton = document.getElementById('save-snapshot-button');
 const cleanupRunsButton = document.getElementById('cleanup-runs-button');
 const clearRunsButton = document.getElementById('clear-runs-button');
@@ -192,6 +197,51 @@ async function saveSessionSnapshot() {
   setStatus(runsStatus, `Saved local snapshot ${snapshot.id}.`, 'ok');
 }
 
+async function runPipeline() {
+  const accessToken = getAccessToken();
+  const { environment } = getAuthSettingsFromForm();
+  if (!accessToken) {
+    throw new Error('Sign in first before running a pipeline.');
+  }
+
+  const pipelineName = pipelineNameSelect.value;
+  const intervalInput = pipelineIntervalInput.value.trim() || 'yesterday';
+
+  if (pipelineName !== 'botflowCost') {
+    throw new Error(`Unsupported frontend pipeline "${pipelineName}".`);
+  }
+
+  setStatus(pipelineStatus, 'Running botflowCost in the browser...', '');
+  const result = await runBotflowCostAggregate({
+    environment,
+    accessToken,
+    intervalInput,
+  });
+
+  const saved = await saveRun({
+    pipelineName: 'botflowCost',
+    status: 'completed',
+    providedInterval: intervalInput,
+    humanReadableInterval: result.interval,
+    durationMs: 0,
+    reportFilename: null,
+    reportContent: result.reportContent,
+    summary: result.summary,
+    metadata: {
+      source: 'frontend-only-shell',
+      mode: 'aggregate-only',
+    },
+  });
+
+  await refreshRuns();
+  await viewRun(saved.id);
+
+  reportMeta.textContent = `Local Run ${saved.id} • botflowCost`;
+  reportOutput.textContent = result.reportContent;
+  setStatus(pipelineStatus, 'botflowCost completed in the browser and was saved locally.', 'ok');
+  setStatus(runsStatus, `Saved botflowCost run ${saved.id}.`, 'ok');
+}
+
 async function cleanupRuns() {
   const result = await ensureRetentionPolicy({
     retentionDays: DEFAULT_RETENTION_DAYS,
@@ -279,6 +329,16 @@ clearRunsButton.addEventListener('click', async () => {
   }
 });
 
+pipelineForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  try {
+    await runPipeline();
+  } catch (error) {
+    setStatus(pipelineStatus, error.message, 'error');
+  }
+});
+
 runsBody.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLButtonElement)) return;
@@ -320,6 +380,8 @@ async function boot() {
   if (getAccessToken() && loadCachedConfigPointer()) {
     setStatus(configStatus, 'Cached config pointer found. Click "Resolve Config" to load the document.', 'ok');
   }
+
+  setStatus(pipelineStatus, 'Ready to run aggregate-only botflowCost.', '');
 }
 
 boot().catch((error) => {

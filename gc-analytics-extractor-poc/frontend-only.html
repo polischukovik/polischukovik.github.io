@@ -73,6 +73,29 @@
     </section>
 
     <section class="panel">
+      <h2>Run Pipeline</h2>
+      <form id="pipeline-form" class="pkce-form">
+        <label>
+          <span>Pipeline</span>
+          <select id="pipeline-name">
+            <option value="botflowCost">botflowCost</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Interval</span>
+          <input id="pipeline-interval" type="text" value="yesterday" />
+        </label>
+
+        <div class="pkce-actions pkce-wide">
+          <button type="submit">Run Pipeline</button>
+        </div>
+      </form>
+      <p class="small">Current frontend implementation runs aggregate-only lower-bound `botflowCost`.</p>
+      <p id="pipeline-status" class="status"></p>
+    </section>
+
+    <section class="panel">
       <div class="section-head">
         <h2>Local Last Runs</h2>
         <div class="pkce-actions">
@@ -104,7 +127,7 @@
         <h2>Selected Run</h2>
         <p id="report-meta" class="small"></p>
       </div>
-      <pre id="report-output" class="report">Select a local run to inspect its cached payload.</pre>
+      <pre id="report-output" class="report">Run a pipeline or select a local run to inspect its cached payload.</pre>
     </section>
   </main>
 
