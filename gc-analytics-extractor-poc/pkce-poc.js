@@ -18,6 +18,15 @@ const probeReportingTurnsButton = document.getElementById('probe-reportingturns-
 const probeSessionsButton = document.getElementById('probe-sessions-button');
 const detailProbeStatus = document.getElementById('detail-probe-status');
 const detailProbeData = document.getElementById('detail-probe-data');
+const configWorkspaceIdInput = document.getElementById('config-workspace-id');
+const configWorkspaceNameInput = document.getElementById('config-workspace-name');
+const configDocumentIdInput = document.getElementById('config-document-id');
+const configDocumentNameInput = document.getElementById('config-document-name');
+const probeWorkspacesButton = document.getElementById('probe-workspaces-button');
+const probeDocumentsButton = document.getElementById('probe-documents-button');
+const probeConfigDocumentButton = document.getElementById('probe-config-document-button');
+const configProbeStatus = document.getElementById('config-probe-status');
+const configProbeData = document.getElementById('config-probe-data');
 
 const STORAGE_KEY = 'genesys-pkce-poc';
 const PKCE_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
@@ -39,6 +48,10 @@ function saveStoredConfig() {
     redirectUri: redirectUriInput.value.trim(),
     botFlowId: botFlowIdInput.value.trim(),
     probeInterval: probeIntervalInput.value.trim(),
+    configWorkspaceId: configWorkspaceIdInput.value.trim(),
+    configWorkspaceName: configWorkspaceNameInput.value.trim(),
+    configDocumentId: configDocumentIdInput.value.trim(),
+    configDocumentName: configDocumentNameInput.value.trim(),
   };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
@@ -84,6 +97,11 @@ function setApiProbeStatus(message, type = '') {
 function setDetailProbeStatus(message, type = '') {
   detailProbeStatus.textContent = message;
   detailProbeStatus.className = `status ${type}`.trim();
+}
+
+function setConfigProbeStatus(message, type = '') {
+  configProbeStatus.textContent = message;
+  configProbeStatus.className = `status ${type}`.trim();
 }
 
 function getStoredAccessToken() {
@@ -208,6 +226,44 @@ function ensureDetailProbeInputs() {
   saveStoredConfig();
 
   return { accessToken, environment, botFlowId, interval };
+}
+
+function ensureBaseApiAccess() {
+  const accessToken = getStoredAccessToken();
+  if (!accessToken) {
+    throw new Error('No access token is stored in this tab. Complete token exchange first.');
+  }
+
+  const environment = normalizeEnvironment(environmentInput.value);
+  if (!environment) {
+    throw new Error('Genesys Cloud environment is required.');
+  }
+
+  saveStoredConfig();
+  return { accessToken, environment };
+}
+
+async function fetchJsonWithBearer(url, accessToken) {
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  } catch (error) {
+    throw new Error(`Request failed before receiving a response: ${String(error)}`);
+  }
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = payload?.message || payload?.error || `Request failed with status ${response.status}.`;
+    throw new Error(message);
+  }
+
+  return payload;
 }
 
 async function redirectToGenesysLogin() {
@@ -401,6 +457,139 @@ async function probeBotFlowDetail(kind) {
   setDetailProbeStatus(`${kind} probe succeeded.`, 'ok');
 }
 
+async function listWorkspaces() {
+  const { accessToken, environment } = ensureBaseApiAccess();
+  setConfigProbeStatus('Listing workspaces...', '');
+
+  const payload = await fetchJsonWithBearer(
+    `${getApiBase(environment)}/api/v2/contentmanagement/workspaces`,
+    accessToken
+  );
+  const entities = Array.isArray(payload.entities) ? payload.entities : [];
+  const workspaceName = configWorkspaceNameInput.value.trim().toLowerCase();
+  const matchedWorkspace = workspaceName
+    ? entities.find((entity) => String(entity?.name || '').toLowerCase() === workspaceName)
+    : null;
+
+  if (matchedWorkspace?.id) {
+    configWorkspaceIdInput.value = matchedWorkspace.id;
+  }
+
+  configProbeData.textContent = JSON.stringify({
+    responseStatus: 200,
+    workspaceCount: entities.length,
+    matchedWorkspace: matchedWorkspace || null,
+    sampleWorkspaces: entities.slice(0, 10).map((entity) => ({
+      id: entity?.id || null,
+      name: entity?.name || null,
+      description: entity?.description || null,
+    })),
+  }, null, 2);
+
+  setConfigProbeStatus('Workspace listing succeeded.', 'ok');
+}
+
+async function listWorkspaceDocuments() {
+  const { accessToken, environment } = ensureBaseApiAccess();
+  const workspaceId = configWorkspaceIdInput.value.trim();
+  if (!workspaceId) {
+    throw new Error('Workspace ID is required to list workspace documents.');
+  }
+
+  setConfigProbeStatus('Listing documents in the selected workspace...', '');
+
+  const payload = await fetchJsonWithBearer(
+    `${getApiBase(environment)}/api/v2/contentmanagement/workspaces/${encodeURIComponent(workspaceId)}/documents`,
+    accessToken
+  );
+  const entities = Array.isArray(payload.entities) ? payload.entities : [];
+  const documentName = configDocumentNameInput.value.trim().toLowerCase();
+  const matchedDocument = documentName
+    ? entities.find((entity) => String(entity?.name || '').toLowerCase() === documentName)
+    : null;
+
+  if (matchedDocument?.id) {
+    configDocumentIdInput.value = matchedDocument.id;
+  }
+
+  configProbeData.textContent = JSON.stringify({
+    responseStatus: 200,
+    workspaceId,
+    documentCount: entities.length,
+    matchedDocument: matchedDocument || null,
+    sampleDocuments: entities.slice(0, 10).map((entity) => ({
+      id: entity?.id || null,
+      name: entity?.name || null,
+      contentType: entity?.contentType || null,
+      dateModified: entity?.dateModified || null,
+    })),
+  }, null, 2);
+
+  setConfigProbeStatus('Workspace document listing succeeded.', 'ok');
+}
+
+async function loadConfigDocument() {
+  const { accessToken, environment } = ensureBaseApiAccess();
+  const documentId = configDocumentIdInput.value.trim();
+  if (!documentId) {
+    throw new Error('Document ID is required to load document content.');
+  }
+
+  setConfigProbeStatus('Loading config document metadata...', '');
+
+  const downloadInfo = await fetchJsonWithBearer(
+    `${getApiBase(environment)}/api/v2/contentmanagement/documents/${encodeURIComponent(documentId)}/content`,
+    accessToken
+  );
+  const contentUrl = downloadInfo?.contentLocationUri;
+
+  if (!contentUrl) {
+    configProbeData.textContent = JSON.stringify(downloadInfo, null, 2);
+    throw new Error('Document content did not return a contentLocationUri.');
+  }
+
+  setConfigProbeStatus('Fetching config document content...', '');
+
+  let rawText;
+  try {
+    const contentResponse = await fetch(contentUrl, { method: 'GET' });
+    rawText = await contentResponse.text();
+    if (!contentResponse.ok) {
+      throw new Error(`Document content download failed with status ${contentResponse.status}.`);
+    }
+  } catch (error) {
+    configProbeData.textContent = JSON.stringify({
+      contentLocationUri: contentUrl,
+      error: String(error),
+    }, null, 2);
+    throw new Error('Failed to download document content from contentLocationUri.');
+  }
+
+  let parsedJson = null;
+  let parseError = null;
+  try {
+    parsedJson = JSON.parse(rawText);
+  } catch (error) {
+    parseError = String(error);
+  }
+
+  configProbeData.textContent = JSON.stringify({
+    responseStatus: 200,
+    documentId,
+    contentLocationUri: contentUrl,
+    isJson: Boolean(parsedJson),
+    parseError,
+    parsedJson,
+    rawPreview: rawText.slice(0, 2000),
+  }, null, 2);
+
+  if (!parsedJson) {
+    throw new Error('Document content was fetched, but it is not valid JSON.');
+  }
+
+  setConfigProbeStatus('Config document loaded successfully.', 'ok');
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
 
@@ -424,8 +613,10 @@ clearButton.addEventListener('click', () => {
   tokenData.textContent = 'Local PKCE state cleared.';
   apiProbeData.textContent = 'No API probe attempted yet.';
   detailProbeData.textContent = 'No detail probe attempted yet.';
+  configProbeData.textContent = 'No config probe attempted yet.';
   setApiProbeStatus('', '');
   setDetailProbeStatus('', '');
+  setConfigProbeStatus('', '');
   setStatus('Saved PKCE state cleared from this browser.', 'ok');
 });
 
@@ -453,6 +644,30 @@ probeSessionsButton.addEventListener('click', async () => {
   }
 });
 
+probeWorkspacesButton.addEventListener('click', async () => {
+  try {
+    await listWorkspaces();
+  } catch (error) {
+    setConfigProbeStatus(error.message, 'error');
+  }
+});
+
+probeDocumentsButton.addEventListener('click', async () => {
+  try {
+    await listWorkspaceDocuments();
+  } catch (error) {
+    setConfigProbeStatus(error.message, 'error');
+  }
+});
+
+probeConfigDocumentButton.addEventListener('click', async () => {
+  try {
+    await loadConfigDocument();
+  } catch (error) {
+    setConfigProbeStatus(error.message, 'error');
+  }
+});
+
 function boot() {
   const stored = loadStoredConfig();
 
@@ -462,6 +677,10 @@ function boot() {
   redirectUriInput.value = stored.redirectUri || window.location.href.split('?')[0];
   botFlowIdInput.value = stored.botFlowId || '';
   probeIntervalInput.value = stored.probeInterval || getYesterdayUtcInterval();
+  configWorkspaceIdInput.value = stored.configWorkspaceId || '';
+  configWorkspaceNameInput.value = stored.configWorkspaceName || '';
+  configDocumentIdInput.value = stored.configDocumentId || '';
+  configDocumentNameInput.value = stored.configDocumentName || '';
 
   renderCallbackState();
 

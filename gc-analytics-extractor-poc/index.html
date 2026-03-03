@@ -107,6 +107,42 @@
     </section>
 
     <section class="panel">
+      <div class="section-head">
+        <h2>Config Probe: Genesys Documents</h2>
+        <p class="small">Use Content Management to discover and load a tenant config JSON document.</p>
+      </div>
+      <div class="pkce-form">
+        <label>
+          <span>Workspace ID</span>
+          <input id="config-workspace-id" type="text" placeholder="Optional if loading by workspace name" autocomplete="off" />
+        </label>
+
+        <label>
+          <span>Workspace Name</span>
+          <input id="config-workspace-name" type="text" placeholder="Optional lookup helper" autocomplete="off" />
+        </label>
+
+        <label>
+          <span>Document ID</span>
+          <input id="config-document-id" type="text" placeholder="Optional if loading by document name" autocomplete="off" />
+        </label>
+
+        <label>
+          <span>Document Name</span>
+          <input id="config-document-name" type="text" placeholder="Optional lookup helper" autocomplete="off" />
+        </label>
+
+        <div class="pkce-actions pkce-wide">
+          <button id="probe-workspaces-button" type="button">List Workspaces</button>
+          <button id="probe-documents-button" type="button" class="secondary">List Workspace Documents</button>
+          <button id="probe-config-document-button" type="button" class="secondary">Load Config Document</button>
+        </div>
+      </div>
+      <p id="config-probe-status" class="status"></p>
+      <pre id="config-probe-data" class="report">No config probe attempted yet.</pre>
+    </section>
+
+    <section class="panel">
       <h2>What This Proves</h2>
       <ul class="pkce-list">
         <li>Browser can generate PKCE verifier and challenge.</li>
@@ -114,6 +150,7 @@
         <li>Browser can exchange that code for tokens without a backend relay.</li>
         <li>Browser can call a required Genesys analytics API directly with the access token.</li>
         <li>Browser can call the exact bot flow detail endpoints needed for recent-mode calculations.</li>
+        <li>Browser can discover and load tenant config from Genesys Content Management.</li>
       </ul>
     </section>
   </main>
