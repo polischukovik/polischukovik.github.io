@@ -1,7 +1,15 @@
 const AUTH_SETTINGS_KEY = 'gc-analytics-extractor:auth-settings';
 const AUTH_STATE_KEY = 'gc-analytics-extractor:auth-state';
 const ACCESS_TOKEN_KEY = 'gc-analytics-extractor:access-token';
-const REQUIRED_SCOPES = ['analytics:readonly', 'content-management:readonly', 'architect:readonly'];
+const REQUIRED_SCOPES = [
+  'analytics:readonly',
+  'content-management:readonly',
+  'architect:readonly',
+  'routing:readonly',
+  'users:readonly',
+  'outbound:readonly',
+  'authorization:readonly',
+];
 const DEFAULT_SCOPES = REQUIRED_SCOPES.join(' ');
 const PKCE_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
 

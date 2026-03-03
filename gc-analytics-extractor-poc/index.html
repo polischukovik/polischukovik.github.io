@@ -79,6 +79,7 @@
           <span>Pipeline</span>
           <select id="pipeline-name">
             <option value="botflowCost">botflowCost</option>
+            <option value="smsCost">smsCost</option>
           </select>
         </label>
 
@@ -91,7 +92,7 @@
           <button type="submit">Run Pipeline</button>
         </div>
       </form>
-      <p class="small">The frontend runtime now uses the same botflowCost calculation logic and report structure as the backend pipeline.</p>
+      <p class="small">The frontend runtime now runs `botflowCost` and `smsCost` in the browser using the same calculation paths as the backend pipelines.</p>
       <p id="pipeline-status" class="status"></p>
     </section>
 

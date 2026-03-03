@@ -18,6 +18,7 @@ import {
   loadFrontendConfig,
 } from './frontend-config-resolver.js';
 import { runBotflowCostAggregate } from './frontend-botflow.js';
+import { runSmsCost } from './frontend-sms.js';
 import {
   DEFAULT_RETENTION_DAYS,
   clearAllRuns,
@@ -215,15 +216,11 @@ async function runPipeline() {
   const pipelineName = pipelineNameSelect.value;
   const intervalInput = pipelineIntervalInput.value.trim() || 'yesterday';
 
-  if (pipelineName !== 'botflowCost') {
-    throw new Error(`Unsupported frontend pipeline "${pipelineName}".`);
-  }
-
   const runId = window.crypto.randomUUID();
   const startedAt = new Date().toISOString();
   const pendingRun = await saveRun({
     id: runId,
-    pipelineName: 'botflowCost',
+    pipelineName,
     status: 'running',
     providedInterval: intervalInput,
     humanReadableInterval: intervalInput,
@@ -240,20 +237,37 @@ async function runPipeline() {
 
   await refreshRuns();
   await viewRun(pendingRun.id);
-  reportMeta.textContent = `Local Run ${pendingRun.id} • botflowCost`;
+  reportMeta.textContent = `Local Run ${pendingRun.id} • ${pipelineName}`;
   reportOutput.textContent = pendingRun.reportContent;
-  setStatus(pipelineStatus, 'Running botflowCost in the browser...', '');
+  setStatus(pipelineStatus, `Running ${pipelineName} in the browser...`, '');
 
   try {
-    const result = await runBotflowCostAggregate({
-      environment,
-      accessToken,
-      intervalInput,
-    });
+    let result;
+
+    if (pipelineName === 'botflowCost') {
+      result = await runBotflowCostAggregate({
+        environment,
+        accessToken,
+        intervalInput,
+      });
+    } else if (pipelineName === 'smsCost') {
+      if (!resolvedConfig) {
+        await resolveConfig();
+      }
+
+      result = await runSmsCost({
+        environment,
+        accessToken,
+        intervalInput,
+        frontendConfig: resolvedConfig?.config || null,
+      });
+    } else {
+      throw new Error(`Unsupported frontend pipeline "${pipelineName}".`);
+    }
 
     const completedRun = await saveRun({
       id: runId,
-      pipelineName: 'botflowCost',
+      pipelineName,
       status: 'completed',
       providedInterval: intervalInput,
       humanReadableInterval: result.humanReadableInterval,
@@ -264,21 +278,22 @@ async function runPipeline() {
       summary: result.summary,
       metadata: {
         source: 'frontend-only-shell',
-        mode: result.billingMode,
+        mode: result.billingMode || 'frontend',
       },
     });
 
     await refreshRuns();
     await viewRun(completedRun.id);
 
-    reportMeta.textContent = `Local Run ${completedRun.id} • botflowCost`;
+    reportMeta.textContent = `Local Run ${completedRun.id} • ${pipelineName}`;
     reportOutput.textContent = result.reportContent;
-    setStatus(pipelineStatus, `botflowCost completed in ${result.billingMode} mode and was saved locally.`, 'ok');
-    setStatus(runsStatus, `Saved botflowCost run ${completedRun.id}.`, 'ok');
+    const modeSuffix = result.billingMode ? ` in ${result.billingMode} mode` : '';
+    setStatus(pipelineStatus, `${pipelineName} completed${modeSuffix} and was saved locally.`, 'ok');
+    setStatus(runsStatus, `Saved ${pipelineName} run ${completedRun.id}.`, 'ok');
   } catch (error) {
     const failedRun = await saveRun({
       id: runId,
-      pipelineName: 'botflowCost',
+      pipelineName,
       status: 'failed',
       providedInterval: intervalInput,
       humanReadableInterval: intervalInput,
@@ -295,9 +310,9 @@ async function runPipeline() {
 
     await refreshRuns();
     await viewRun(failedRun.id);
-    reportMeta.textContent = `Local Run ${failedRun.id} • botflowCost`;
+    reportMeta.textContent = `Local Run ${failedRun.id} • ${pipelineName}`;
     reportOutput.textContent = `Pipeline failed:\n${error.message}`;
-    setStatus(runsStatus, `Saved failed botflowCost run ${failedRun.id}.`, 'error');
+    setStatus(runsStatus, `Saved failed ${pipelineName} run ${failedRun.id}.`, 'error');
     throw error;
   }
 }
