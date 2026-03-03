@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Genesys Cloud Analytics Portal (Frontend-Only)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-a"></div>
+  <div class="bg-shape bg-shape-b"></div>
+
+  <main class="layout pkce-layout">
+    <header class="hero panel">
+      <p class="eyebrow">Frontend-Only</p>
+      <h1>Genesys Analytics Portal</h1>
+      <p class="subtitle">Static app shell with browser auth, automatic config resolution, and local Last Runs.</p>
+    </header>
+
+    <section class="panel">
+      <h2>Authentication</h2>
+      <form id="auth-form" class="pkce-form">
+        <label>
+          <span>Genesys Cloud Environment</span>
+          <input id="environment" type="text" placeholder="mypurecloud.ie" autocomplete="off" required />
+        </label>
+
+        <label>
+          <span>OAuth Client ID</span>
+          <input id="client-id" type="text" placeholder="PKCE client id" autocomplete="off" required />
+        </label>
+
+        <label>
+          <span>Scopes</span>
+          <input id="scopes" type="text" autocomplete="off" required />
+        </label>
+
+        <label class="pkce-wide">
+          <span>Redirect URI</span>
+          <input id="redirect-uri" type="url" autocomplete="off" />
+        </label>
+
+        <div class="pkce-actions pkce-wide">
+          <button type="submit">Sign In</button>
+          <button id="sign-out-button" type="button" class="secondary">Sign Out</button>
+        </div>
+      </form>
+      <p id="auth-status" class="status"></p>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>System Status</h2>
+        <button id="refresh-system-button" type="button" class="secondary">Refresh</button>
+      </div>
+      <pre id="system-status" class="report">Loading...</pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Config</h2>
+        <div class="pkce-actions">
+          <button id="resolve-config-button" type="button">Resolve Config</button>
+          <button id="clear-config-pointer-button" type="button" class="secondary">Clear Config Pointer</button>
+        </div>
+      </div>
+      <p class="small">Automatic source: workspace <code>gc-app-config</code>, document <code>gc-analytics-extractor.json</code>.</p>
+      <p id="config-status" class="status"></p>
+      <pre id="config-output" class="report">No config loaded yet.</pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Local Last Runs</h2>
+        <div class="pkce-actions">
+          <button id="save-snapshot-button" type="button">Save Session Snapshot</button>
+          <button id="cleanup-runs-button" type="button" class="secondary">Run TTL Cleanup</button>
+          <button id="clear-runs-button" type="button" class="secondary">Clear All Runs</button>
+        </div>
+      </div>
+      <p id="runs-status" class="status"></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Pipeline</th>
+              <th>Status</th>
+              <th>Interval</th>
+              <th>Started</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="runs-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Selected Run</h2>
+        <p id="report-meta" class="small"></p>
+      </div>
+      <pre id="report-output" class="report">Select a local run to inspect its cached payload.</pre>
+    </section>
+  </main>
+
+  <script type="module" src="./frontend-only.js"></script>
+</body>
+</html>
