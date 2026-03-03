@@ -1,7 +1,8 @@
 const AUTH_SETTINGS_KEY = 'gc-analytics-extractor:auth-settings';
 const AUTH_STATE_KEY = 'gc-analytics-extractor:auth-state';
 const ACCESS_TOKEN_KEY = 'gc-analytics-extractor:access-token';
-const DEFAULT_SCOPES = 'analytics:readonly content-management:readonly';
+const REQUIRED_SCOPES = ['analytics:readonly', 'content-management:readonly', 'architect:readonly'];
+const DEFAULT_SCOPES = REQUIRED_SCOPES.join(' ');
 const PKCE_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~';
 
 function loadJson(storage, key, fallback = null) {
@@ -25,6 +26,20 @@ function normalizeEnvironment(value) {
   return withoutProtocol.replace(/^(login|api)\./i, '');
 }
 
+function normalizeScopes(value) {
+  const requested = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const scopeSet = new Set(requested);
+
+  for (const scope of REQUIRED_SCOPES) {
+    scopeSet.add(scope);
+  }
+
+  return Array.from(scopeSet).join(' ');
+}
+
 function getLoginBase(environment) {
   return `https://login.${normalizeEnvironment(environment)}`;
 }
@@ -35,7 +50,7 @@ function loadAuthSettings() {
   return {
     environment: stored.environment || '',
     clientId: stored.clientId || '',
-    scopes: stored.scopes || DEFAULT_SCOPES,
+    scopes: normalizeScopes(stored.scopes || DEFAULT_SCOPES),
     redirectUri: stored.redirectUri || window.location.href.split('?')[0],
   };
 }
@@ -44,7 +59,7 @@ function saveAuthSettings(settings) {
   const normalized = {
     environment: normalizeEnvironment(settings.environment),
     clientId: String(settings.clientId || '').trim(),
-    scopes: String(settings.scopes || DEFAULT_SCOPES).trim() || DEFAULT_SCOPES,
+    scopes: normalizeScopes(settings.scopes || DEFAULT_SCOPES),
     redirectUri: String(settings.redirectUri || window.location.href.split('?')[0]).trim(),
   };
 

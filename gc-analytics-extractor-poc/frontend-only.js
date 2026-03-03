@@ -65,6 +65,13 @@ function formatTime(value) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
+function formatDuration(value) {
+  if (value === null || value === undefined) return '-';
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-';
+  if (value < 1000) return `${value} ms`;
+  return `${(value / 1000).toFixed(2)} s`;
+}
+
 function getAuthSettingsFromForm() {
   return {
     environment: environmentInput.value.trim(),
@@ -104,7 +111,7 @@ function renderRunsTable(runs) {
 
   if (!runs.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="6">No local runs saved yet.</td>';
+    tr.innerHTML = '<td colspan="7">No local runs saved yet.</td>';
     runsBody.appendChild(tr);
     return;
   }
@@ -117,6 +124,7 @@ function renderRunsTable(runs) {
       <td><span class="status-pill status-${String(run.status).toLowerCase()}">${run.status}</span></td>
       <td>${run.humanReadableInterval || run.providedInterval || '-'}</td>
       <td>${formatTime(run.startedAt)}</td>
+      <td>${formatDuration(run.durationMs)}</td>
       <td><button type="button" class="action-btn" data-run-id="${run.id}">View</button></td>
     `;
     runsBody.appendChild(tr);
@@ -137,8 +145,8 @@ async function viewRun(runId) {
     return;
   }
 
-  reportMeta.textContent = `${run.pipelineName} • ${run.status} • ${formatTime(run.startedAt)}`;
-  reportOutput.textContent = JSON.stringify(run, null, 2);
+  reportMeta.textContent = `${run.pipelineName} • ${run.status} • ${formatTime(run.startedAt)} • ${run.humanReadableInterval || run.providedInterval || '-'}`;
+  reportOutput.textContent = run.reportContent || 'No cached report content.';
 }
 
 async function resolveConfig() {
@@ -248,7 +256,7 @@ async function runPipeline() {
       pipelineName: 'botflowCost',
       status: 'completed',
       providedInterval: intervalInput,
-      humanReadableInterval: result.interval,
+      humanReadableInterval: result.humanReadableInterval,
       startedAt,
       durationMs: Date.now() - new Date(startedAt).getTime(),
       reportFilename: null,

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Genesys Cloud PKCE POC</title>
+  <title>Genesys Cloud Analytics Portal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -15,14 +15,14 @@
 
   <main class="layout pkce-layout">
     <header class="hero panel">
-      <p class="eyebrow">Frontend-Only POC</p>
-      <h1>Genesys Cloud PKCE Probe</h1>
-      <p class="subtitle">Use this page to validate browser-only OAuth without the backend.</p>
+      <p class="eyebrow">Frontend-Only</p>
+      <h1>Genesys Analytics Portal</h1>
+      <p class="subtitle">Static app shell with browser auth, automatic config resolution, and local Last Runs.</p>
     </header>
 
     <section class="panel">
-      <h2>OAuth Settings</h2>
-      <form id="pkce-form" class="pkce-form">
+      <h2>Authentication</h2>
+      <form id="auth-form" class="pkce-form">
         <label>
           <span>Genesys Cloud Environment</span>
           <input id="environment" type="text" placeholder="mypurecloud.ie" autocomplete="off" required />
@@ -30,12 +30,12 @@
 
         <label>
           <span>OAuth Client ID</span>
-          <input id="client-id" type="text" placeholder="Your PKCE client id" autocomplete="off" required />
+          <input id="client-id" type="text" placeholder="PKCE client id" autocomplete="off" required />
         </label>
 
         <label>
           <span>Scopes</span>
-          <input id="scopes" type="text" value="analytics architect:readonly" autocomplete="off" required />
+          <input id="scopes" type="text" autocomplete="off" required />
         </label>
 
         <label class="pkce-wide">
@@ -44,122 +44,94 @@
         </label>
 
         <div class="pkce-actions pkce-wide">
-          <button id="login-button" type="submit">Start PKCE Login</button>
-          <button id="exchange-button" type="button" class="secondary">Exchange Callback Code</button>
-          <button id="clear-button" type="button" class="secondary">Clear Local State</button>
+          <button type="submit">Sign In</button>
+          <button id="sign-out-button" type="button" class="secondary">Sign Out</button>
         </div>
       </form>
-      <p class="small">Use the final hosted URL here. For GitHub Pages this should normally be this page's full URL.</p>
-      <p id="pkce-status" class="status"></p>
+      <p id="auth-status" class="status"></p>
     </section>
 
     <section class="panel">
       <div class="section-head">
-        <h2>Detected Callback State</h2>
-        <p class="small" id="callback-meta"></p>
+        <h2>System Status</h2>
+        <button id="refresh-system-button" type="button" class="secondary">Refresh</button>
       </div>
-      <pre id="callback-data" class="report">Waiting for redirect callback.</pre>
+      <pre id="system-status" class="report">Loading...</pre>
     </section>
 
     <section class="panel">
       <div class="section-head">
-        <h2>Token Exchange Result</h2>
-        <p class="small">Response body is summarized locally. Access token is partially redacted in view.</p>
+        <h2>Config</h2>
+        <div class="pkce-actions">
+          <button id="resolve-config-button" type="button">Resolve Config</button>
+          <button id="clear-config-pointer-button" type="button" class="secondary">Clear Config Pointer</button>
+        </div>
       </div>
-      <pre id="token-data" class="report">No token exchange attempted yet.</pre>
+      <p class="small">Automatic source: workspace <code>gc-app-config</code>, document <code>gc-analytics-extractor.json</code>.</p>
+      <p id="config-status" class="status"></p>
+      <pre id="config-output" class="report">No config loaded yet.</pre>
     </section>
 
     <section class="panel">
-      <div class="section-head">
-        <h2>API Probe: Bot Aggregates</h2>
-        <p class="small">Direct browser call to <code>POST /api/v2/analytics/bots/aggregates/query</code>.</p>
-      </div>
-      <div class="pkce-actions">
-        <button id="probe-bot-aggregates-button" type="button">Probe Bot Aggregates</button>
-      </div>
-      <p id="api-probe-status" class="status"></p>
-      <pre id="api-probe-data" class="report">No API probe attempted yet.</pre>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <h2>API Probe: Bot Flow Detail</h2>
-        <p class="small">Direct browser calls to the exact-detail endpoints used by the pipeline.</p>
-      </div>
-      <div class="pkce-form">
+      <h2>Run Pipeline</h2>
+      <form id="pipeline-form" class="pkce-form">
         <label>
-          <span>Bot Flow ID</span>
-          <input id="bot-flow-id" type="text" placeholder="071206f5-a178-4374-b29f-caaa4158f7c2" autocomplete="off" />
+          <span>Pipeline</span>
+          <select id="pipeline-name">
+            <option value="botflowCost">botflowCost</option>
+          </select>
         </label>
 
         <label>
           <span>Interval</span>
-          <input id="probe-interval" type="text" placeholder="2026-03-01T00:00:00.000Z/2026-03-02T00:00:00.000Z" autocomplete="off" />
+          <input id="pipeline-interval" type="text" value="yesterday" />
         </label>
 
         <div class="pkce-actions pkce-wide">
-          <button id="probe-reportingturns-button" type="button">Probe Reporting Turns</button>
-          <button id="probe-sessions-button" type="button" class="secondary">Probe Sessions</button>
+          <button type="submit">Run Pipeline</button>
         </div>
-      </div>
-      <p id="detail-probe-status" class="status"></p>
-      <pre id="detail-probe-data" class="report">No detail probe attempted yet.</pre>
+      </form>
+      <p class="small">The frontend runtime now uses the same botflowCost calculation logic and report structure as the backend pipeline.</p>
+      <p id="pipeline-status" class="status"></p>
     </section>
 
     <section class="panel">
       <div class="section-head">
-        <h2>Config Probe: Genesys Documents</h2>
-        <p class="small">Use Content Management to discover and load a tenant config JSON document.</p>
-      </div>
-      <div class="pkce-actions">
-        <button id="resolve-config-button" type="button">Resolve App Config</button>
-        <button id="clear-config-pointer-button" type="button" class="secondary">Clear Cached Config Pointer</button>
-      </div>
-      <p class="small">Automatic resolution uses fixed names: workspace <code id="resolver-workspace-name"></code>, document <code id="resolver-document-name"></code>.</p>
-      <div class="pkce-form">
-        <label>
-          <span>Workspace ID</span>
-          <input id="config-workspace-id" type="text" placeholder="Optional if loading by workspace name" autocomplete="off" />
-        </label>
-
-        <label>
-          <span>Workspace Name</span>
-          <input id="config-workspace-name" type="text" placeholder="Optional lookup helper" autocomplete="off" />
-        </label>
-
-        <label>
-          <span>Document ID</span>
-          <input id="config-document-id" type="text" placeholder="Optional if loading by document name" autocomplete="off" />
-        </label>
-
-        <label>
-          <span>Document Name</span>
-          <input id="config-document-name" type="text" placeholder="Optional lookup helper" autocomplete="off" />
-        </label>
-
-        <div class="pkce-actions pkce-wide">
-          <button id="probe-workspaces-button" type="button">List Workspaces</button>
-          <button id="probe-documents-button" type="button" class="secondary">List Workspace Documents</button>
-          <button id="probe-config-document-button" type="button" class="secondary">Load Config Document</button>
+        <h2>Local Last Runs</h2>
+        <div class="pkce-actions">
+          <button id="save-snapshot-button" type="button">Save Session Snapshot</button>
+          <button id="cleanup-runs-button" type="button" class="secondary">Run TTL Cleanup</button>
+          <button id="clear-runs-button" type="button" class="secondary">Clear All Runs</button>
         </div>
       </div>
-      <p id="config-probe-status" class="status"></p>
-      <pre id="config-probe-data" class="report">No config probe attempted yet.</pre>
+      <p id="runs-status" class="status"></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Pipeline</th>
+              <th>Status</th>
+              <th>Interval</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="runs-body"></tbody>
+        </table>
+      </div>
     </section>
 
     <section class="panel">
-      <h2>What This Proves</h2>
-      <ul class="pkce-list">
-        <li>Browser can generate PKCE verifier and challenge.</li>
-        <li>Genesys can redirect back to the static page with an authorization code.</li>
-        <li>Browser can exchange that code for tokens without a backend relay.</li>
-        <li>Browser can call a required Genesys analytics API directly with the access token.</li>
-        <li>Browser can call the exact bot flow detail endpoints needed for recent-mode calculations.</li>
-        <li>Browser can discover and load tenant config from Genesys Content Management.</li>
-      </ul>
+      <div class="section-head">
+        <h2>Report</h2>
+        <p id="report-meta" class="small"></p>
+      </div>
+      <pre id="report-output" class="report">Run a pipeline or select a local run to view its cached report.</pre>
     </section>
   </main>
 
-  <script type="module" src="./pkce-poc.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

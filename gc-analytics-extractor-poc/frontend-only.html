@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Genesys Cloud Analytics Portal (Frontend-Only)</title>
+  <title>Genesys Cloud Analytics Portal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -91,7 +91,7 @@
           <button type="submit">Run Pipeline</button>
         </div>
       </form>
-      <p class="small">Current frontend implementation runs `botflowCost` in recent or historical mode, with exact recent detail where available.</p>
+      <p class="small">The frontend runtime now uses the same botflowCost calculation logic and report structure as the backend pipeline.</p>
       <p id="pipeline-status" class="status"></p>
     </section>
 
@@ -114,6 +114,7 @@
               <th>Status</th>
               <th>Interval</th>
               <th>Started</th>
+              <th>Duration</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -124,10 +125,10 @@
 
     <section class="panel">
       <div class="section-head">
-        <h2>Selected Run</h2>
+        <h2>Report</h2>
         <p id="report-meta" class="small"></p>
       </div>
-      <pre id="report-output" class="report">Run a pipeline or select a local run to inspect its cached payload.</pre>
+      <pre id="report-output" class="report">Run a pipeline or select a local run to view its cached report.</pre>
     </section>
   </main>
 
