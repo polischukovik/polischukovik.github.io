@@ -1,3 +1,11 @@
+import {
+  CONFIG_DOCUMENT_NAME,
+  CONFIG_WORKSPACE_NAME,
+  clearCachedConfigPointer,
+  loadCachedConfigPointer,
+  loadFrontendConfig,
+} from './frontend-config-resolver.js';
+
 const form = document.getElementById('pkce-form');
 const environmentInput = document.getElementById('environment');
 const clientIdInput = document.getElementById('client-id');
@@ -25,6 +33,10 @@ const configDocumentNameInput = document.getElementById('config-document-name');
 const probeWorkspacesButton = document.getElementById('probe-workspaces-button');
 const probeDocumentsButton = document.getElementById('probe-documents-button');
 const probeConfigDocumentButton = document.getElementById('probe-config-document-button');
+const resolveConfigButton = document.getElementById('resolve-config-button');
+const clearConfigPointerButton = document.getElementById('clear-config-pointer-button');
+const resolverWorkspaceName = document.getElementById('resolver-workspace-name');
+const resolverDocumentName = document.getElementById('resolver-document-name');
 const configProbeStatus = document.getElementById('config-probe-status');
 const configProbeData = document.getElementById('config-probe-data');
 
@@ -590,6 +602,26 @@ async function loadConfigDocument() {
   setConfigProbeStatus('Config document loaded successfully.', 'ok');
 }
 
+async function resolveAppConfig() {
+  const { accessToken, environment } = ensureBaseApiAccess();
+  setConfigProbeStatus('Resolving app config using cached pointer or exact-name discovery...', '');
+
+  const result = await loadFrontendConfig({ environment, accessToken });
+
+  configWorkspaceIdInput.value = result.pointer.workspaceId || '';
+  configWorkspaceNameInput.value = result.pointer.workspaceName || CONFIG_WORKSPACE_NAME;
+  configDocumentIdInput.value = result.pointer.documentId || '';
+  configDocumentNameInput.value = result.pointer.documentName || CONFIG_DOCUMENT_NAME;
+
+  configProbeData.textContent = JSON.stringify({
+    source: result.source,
+    pointer: result.pointer,
+    config: result.config,
+  }, null, 2);
+
+  setConfigProbeStatus(`App config resolved successfully via ${result.source}.`, 'ok');
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
 
@@ -668,6 +700,20 @@ probeConfigDocumentButton.addEventListener('click', async () => {
   }
 });
 
+resolveConfigButton.addEventListener('click', async () => {
+  try {
+    await resolveAppConfig();
+  } catch (error) {
+    setConfigProbeStatus(error.message, 'error');
+  }
+});
+
+clearConfigPointerButton.addEventListener('click', () => {
+  clearCachedConfigPointer();
+  configProbeData.textContent = 'Cached config pointer cleared. The next resolve will use exact-name discovery.';
+  setConfigProbeStatus('Cached config pointer cleared.', 'ok');
+});
+
 function boot() {
   const stored = loadStoredConfig();
 
@@ -678,9 +724,11 @@ function boot() {
   botFlowIdInput.value = stored.botFlowId || '';
   probeIntervalInput.value = stored.probeInterval || getYesterdayUtcInterval();
   configWorkspaceIdInput.value = stored.configWorkspaceId || '';
-  configWorkspaceNameInput.value = stored.configWorkspaceName || '';
+  configWorkspaceNameInput.value = stored.configWorkspaceName || CONFIG_WORKSPACE_NAME;
   configDocumentIdInput.value = stored.configDocumentId || '';
-  configDocumentNameInput.value = stored.configDocumentName || '';
+  configDocumentNameInput.value = stored.configDocumentName || CONFIG_DOCUMENT_NAME;
+  resolverWorkspaceName.textContent = CONFIG_WORKSPACE_NAME;
+  resolverDocumentName.textContent = CONFIG_DOCUMENT_NAME;
 
   renderCallbackState();
 
@@ -692,6 +740,12 @@ function boot() {
 
   if (getStoredAccessToken()) {
     setApiProbeStatus('Access token is present in this tab. You can run the API probe.', 'ok');
+  }
+
+  const cachedPointer = loadCachedConfigPointer();
+  if (cachedPointer) {
+    configProbeStatus.textContent = 'Cached config pointer found. You can resolve config directly.';
+    configProbeStatus.className = 'status ok';
   }
 }
 

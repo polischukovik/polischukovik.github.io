@@ -111,6 +111,11 @@
         <h2>Config Probe: Genesys Documents</h2>
         <p class="small">Use Content Management to discover and load a tenant config JSON document.</p>
       </div>
+      <div class="pkce-actions">
+        <button id="resolve-config-button" type="button">Resolve App Config</button>
+        <button id="clear-config-pointer-button" type="button" class="secondary">Clear Cached Config Pointer</button>
+      </div>
+      <p class="small">Automatic resolution uses fixed names: workspace <code id="resolver-workspace-name"></code>, document <code id="resolver-document-name"></code>.</p>
       <div class="pkce-form">
         <label>
           <span>Workspace ID</span>
