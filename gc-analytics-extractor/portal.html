@@ -18,47 +18,12 @@
       <p class="eyebrow">Genesys Cloud Analytics</p>
       <h1>Genesys Analytics Portal</h1>
       <p class="subtitle">Run analytics cost allocation pipelines directly in the browser with tenant config stored in Genesys Cloud.</p>
+      <div class="section-head">
+        <p id="auth-status" class="status"></p>
+        <button id="sign-out-button" type="button" class="secondary">Re-authenticate</button>
+      </div>
       <p id="build-version" class="small"></p>
     </header>
-
-    <section class="panel">
-      <h2>Authentication</h2>
-      <form id="auth-form" class="pkce-form">
-        <label>
-          <span>Genesys Cloud Environment</span>
-          <input id="environment" type="text" placeholder="mypurecloud.ie" autocomplete="off" required />
-        </label>
-
-        <label>
-          <span>OAuth Client ID</span>
-          <input id="client-id" type="text" placeholder="PKCE client id" autocomplete="off" required />
-        </label>
-
-        <label>
-          <span>Scopes</span>
-          <input id="scopes" type="text" autocomplete="off" required />
-        </label>
-
-        <label class="pkce-wide">
-          <span>Redirect URI</span>
-          <input id="redirect-uri" type="url" autocomplete="off" />
-        </label>
-
-        <div class="pkce-actions pkce-wide">
-          <button type="submit">Sign In</button>
-          <button id="sign-out-button" type="button" class="secondary">Sign Out</button>
-        </div>
-      </form>
-      <p id="auth-status" class="status"></p>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <h2>System Status</h2>
-        <button id="refresh-system-button" type="button" class="secondary">Refresh</button>
-      </div>
-      <pre id="system-status" class="report">Loading...</pre>
-    </section>
 
     <section class="panel">
       <div class="section-head">

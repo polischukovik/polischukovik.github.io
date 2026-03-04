@@ -1,15 +1,14 @@
 import {
-  DEFAULT_SCOPES,
   clearAuthState,
   completePkceCallback,
   getAccessToken,
   getCallbackPayload,
   getTokenInfo,
   hasCallbackPayload,
-  loadAuthSettings,
   saveAuthSettings,
   startPkceLogin,
 } from './frontend-auth.js';
+import { AUTH_BOOTSTRAP_SETTINGS } from './auth-bootstrap.js';
 import { APP_BUILD_ID } from './frontend-build.js';
 import {
   CONFIG_DOCUMENT_NAME,
@@ -29,16 +28,9 @@ import {
   saveRun,
 } from './local-run-store.js';
 
-const authForm = document.getElementById('auth-form');
 const buildVersion = document.getElementById('build-version');
-const environmentInput = document.getElementById('environment');
-const clientIdInput = document.getElementById('client-id');
-const scopesInput = document.getElementById('scopes');
-const redirectUriInput = document.getElementById('redirect-uri');
 const signOutButton = document.getElementById('sign-out-button');
 const authStatus = document.getElementById('auth-status');
-const refreshSystemButton = document.getElementById('refresh-system-button');
-const systemStatus = document.getElementById('system-status');
 const resolveConfigButton = document.getElementById('resolve-config-button');
 const clearConfigPointerButton = document.getElementById('clear-config-pointer-button');
 const configStatus = document.getElementById('config-status');
@@ -74,39 +66,42 @@ function formatDuration(value) {
   return `${(value / 1000).toFixed(2)} s`;
 }
 
-function getAuthSettingsFromForm() {
-  return {
-    environment: environmentInput.value.trim(),
-    clientId: clientIdInput.value.trim(),
-    scopes: scopesInput.value.trim() || DEFAULT_SCOPES,
-    redirectUri: redirectUriInput.value.trim() || window.location.href.split('?')[0],
-  };
+function getAuthSettings() {
+  return saveAuthSettings({
+    ...AUTH_BOOTSTRAP_SETTINGS,
+    redirectUri: window.location.href.split('?')[0],
+  });
 }
 
-function applyAuthSettingsToForm() {
-  const settings = loadAuthSettings();
-  environmentInput.value = settings.environment || '';
-  clientIdInput.value = settings.clientId || '';
-  scopesInput.value = settings.scopes || DEFAULT_SCOPES;
-  redirectUriInput.value = settings.redirectUri || window.location.href.split('?')[0];
-}
-
-function renderSystemStatus() {
+function logSystemStatus(reason) {
   const tokenInfo = getTokenInfo();
   const callbackPayload = getCallbackPayload();
   const cachedPointer = loadCachedConfigPointer();
+  const safeTokenInfo = tokenInfo ? {
+    tokenType: tokenInfo.tokenType,
+    scope: tokenInfo.scope,
+    expiresIn: tokenInfo.expiresIn,
+    receivedAt: tokenInfo.receivedAt,
+  } : null;
+  const safeCallbackPayload = hasCallbackPayload() ? {
+    hasCode: Boolean(callbackPayload.code),
+    state: callbackPayload.state,
+    error: callbackPayload.error,
+    errorDescription: callbackPayload.errorDescription,
+  } : null;
 
-  systemStatus.textContent = JSON.stringify({
+  console.info('[Portal Status]', {
+    reason,
     buildId: APP_BUILD_ID,
     authenticated: Boolean(tokenInfo?.accessToken),
-    tokenInfo,
+    tokenInfo: safeTokenInfo,
     hasCallbackPayload: hasCallbackPayload(),
-    callbackPayload: hasCallbackPayload() ? callbackPayload : null,
+    callbackPayload: safeCallbackPayload,
     configWorkspace: CONFIG_WORKSPACE_NAME,
     configDocument: CONFIG_DOCUMENT_NAME,
     cachedConfigPointer: cachedPointer,
     localRetentionDays: DEFAULT_RETENTION_DAYS,
-  }, null, 2);
+  });
 }
 
 function renderRunsTable(runs) {
@@ -154,7 +149,7 @@ async function viewRun(runId) {
 
 async function resolveConfig() {
   const accessToken = getAccessToken();
-  const { environment } = getAuthSettingsFromForm();
+  const { environment } = getAuthSettings();
 
   if (!accessToken) {
     throw new Error('Sign in first before resolving config.');
@@ -168,7 +163,7 @@ async function resolveConfig() {
     config: resolvedConfig.config,
   }, null, 2);
   setStatus(configStatus, `Config resolved via ${resolvedConfig.source}.`, 'ok');
-  renderSystemStatus();
+  logSystemStatus('config-resolved');
 }
 
 function clearResolvedConfig() {
@@ -178,7 +173,7 @@ function clearResolvedConfig() {
 
 async function runPipeline() {
   const accessToken = getAccessToken();
-  const { environment } = getAuthSettingsFromForm();
+  const { environment } = getAuthSettings();
   if (!accessToken) {
     throw new Error('Sign in first before running a pipeline.');
   }
@@ -304,32 +299,14 @@ async function clearRuns() {
   setStatus(runsStatus, 'All local runs cleared.', 'ok');
 }
 
-authForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-
-  try {
-    saveAuthSettings(getAuthSettingsFromForm());
-    setStatus(authStatus, 'Redirecting to Genesys login...', 'ok');
-    await startPkceLogin(getAuthSettingsFromForm());
-  } catch (error) {
-    setStatus(authStatus, error.message, 'error');
-  }
-});
-
-signOutButton.addEventListener('click', () => {
+signOutButton.addEventListener('click', async () => {
   clearAuthState();
-  clearCachedConfigPointer();
   clearResolvedConfig();
-  renderSystemStatus();
-  setStatus(authStatus, 'Signed out locally. Browser token and config pointer cleared.', 'ok');
+  logSystemStatus('reauthenticate');
+  setStatus(authStatus, 'Redirecting to Genesys login...', '');
   setStatus(configStatus, '', '');
-});
-
-refreshSystemButton.addEventListener('click', async () => {
   try {
-    renderSystemStatus();
-    await refreshRuns();
-    setStatus(authStatus, 'System state refreshed.', 'ok');
+    await startPkceLogin(getAuthSettings());
   } catch (error) {
     setStatus(authStatus, error.message, 'error');
   }
@@ -346,7 +323,7 @@ resolveConfigButton.addEventListener('click', async () => {
 clearConfigPointerButton.addEventListener('click', () => {
   clearCachedConfigPointer();
   clearResolvedConfig();
-  renderSystemStatus();
+  logSystemStatus('config-pointer-cleared');
   setStatus(configStatus, 'Cached config pointer cleared.', 'ok');
 });
 
@@ -394,28 +371,32 @@ async function boot() {
   if (buildVersion) {
     buildVersion.textContent = `Build: ${APP_BUILD_ID}`;
   }
-  applyAuthSettingsToForm();
-  renderSystemStatus();
+  getAuthSettings();
+  logSystemStatus('boot-start');
   await ensureRetentionPolicy({ retentionDays: DEFAULT_RETENTION_DAYS });
   await refreshRuns();
 
   if (hasCallbackPayload()) {
     try {
       setStatus(authStatus, 'Completing PKCE callback...', '');
-      const result = await completePkceCallback(getAuthSettingsFromForm());
+      const result = await completePkceCallback(getAuthSettings());
       if (result.completed) {
         setStatus(authStatus, 'Authenticated successfully.', 'ok');
+        logSystemStatus('callback-complete');
       }
     } catch (error) {
       setStatus(authStatus, error.message, 'error');
+      logSystemStatus('callback-error');
     }
   } else if (getAccessToken()) {
     setStatus(authStatus, 'Authenticated. Browser token is present.', 'ok');
+    logSystemStatus('token-present');
   } else {
-    setStatus(authStatus, 'Configure the OAuth client and sign in.', '');
+    setStatus(authStatus, 'Redirecting to Genesys login...', '');
+    logSystemStatus('auto-login');
+    await startPkceLogin(getAuthSettings());
+    return;
   }
-
-  renderSystemStatus();
 
   if (getAccessToken() && loadCachedConfigPointer()) {
     setStatus(configStatus, 'Cached config pointer found. Click "Resolve Config" to load the document.', 'ok');
@@ -426,5 +407,5 @@ async function boot() {
 
 boot().catch((error) => {
   setStatus(authStatus, error.message, 'error');
-  renderSystemStatus();
+  logSystemStatus('boot-error');
 });
