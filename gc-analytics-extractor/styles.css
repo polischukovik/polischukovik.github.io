@@ -47,7 +47,7 @@ body {
 }
 
 .layout {
-  max-width: 1150px;
+  max-width: 1360px;
   margin: 0 auto;
   padding: 24px;
   display: grid;
@@ -55,7 +55,7 @@ body {
 }
 
 .pkce-layout {
-  max-width: 980px;
+  max-width: 1360px;
 }
 
 .panel {
@@ -106,6 +106,14 @@ h2 {
   grid-template-columns: 1fr 1.6fr auto;
   gap: 12px;
   align-items: end;
+}
+
+.form-row .pkce-actions {
+  align-self: end;
+}
+
+.form-row .pkce-actions button {
+  width: auto;
 }
 
 .pkce-form {

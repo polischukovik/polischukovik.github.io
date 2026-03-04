@@ -394,7 +394,7 @@ function renderRunsTable(runs) {
 
   if (!runs.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="7">No local runs saved yet.</td>';
+    tr.innerHTML = '<td colspan="6">No local runs saved yet.</td>';
     runsBody.appendChild(tr);
     return;
   }
@@ -402,7 +402,6 @@ function renderRunsTable(runs) {
   runs.forEach((run) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${run.id}</td>
       <td>${run.pipelineName}</td>
       <td><span class="status-pill status-${String(run.status).toLowerCase()}">${run.status}</span></td>
       <td>${run.humanReadableInterval || run.providedInterval || '-'}</td>
