@@ -10,6 +10,7 @@ import {
   saveAuthSettings,
   startPkceLogin,
 } from './frontend-auth.js';
+import { APP_BUILD_ID } from './frontend-build.js';
 import {
   CONFIG_DOCUMENT_NAME,
   CONFIG_WORKSPACE_NAME,
@@ -29,6 +30,7 @@ import {
 } from './local-run-store.js';
 
 const authForm = document.getElementById('auth-form');
+const buildVersion = document.getElementById('build-version');
 const environmentInput = document.getElementById('environment');
 const clientIdInput = document.getElementById('client-id');
 const scopesInput = document.getElementById('scopes');
@@ -96,6 +98,7 @@ function renderSystemStatus() {
   const cachedPointer = loadCachedConfigPointer();
 
   systemStatus.textContent = JSON.stringify({
+    buildId: APP_BUILD_ID,
     authenticated: Boolean(tokenInfo?.accessToken),
     tokenInfo,
     hasCallbackPayload: hasCallbackPayload(),
@@ -429,6 +432,9 @@ runsBody.addEventListener('click', async (event) => {
 });
 
 async function boot() {
+  if (buildVersion) {
+    buildVersion.textContent = `Build: ${APP_BUILD_ID}`;
+  }
   applyAuthSettingsToForm();
   renderSystemStatus();
   await ensureRetentionPolicy({ retentionDays: DEFAULT_RETENTION_DAYS });
