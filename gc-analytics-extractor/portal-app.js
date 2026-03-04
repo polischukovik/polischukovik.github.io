@@ -44,9 +44,11 @@ const clearRunsButton = document.getElementById('clear-runs-button');
 const runsStatus = document.getElementById('runs-status');
 const runsBody = document.getElementById('runs-body');
 const reportMeta = document.getElementById('report-meta');
+const downloadReportButton = document.getElementById('download-report-button');
 const reportOutput = document.getElementById('report-output');
 
 let resolvedConfig = null;
+let currentReportFilename = null;
 
 function setStatus(element, message, type = '') {
   element.textContent = message;
@@ -64,6 +66,31 @@ function formatDuration(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-';
   if (value < 1000) return `${value} ms`;
   return `${(value / 1000).toFixed(2)} s`;
+}
+
+function sanitizeFilenamePart(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function buildReportFilename({ pipelineName, status, startedAt }) {
+  const pipelinePart = sanitizeFilenamePart(pipelineName || 'report');
+  const statusPart = sanitizeFilenamePart(status || 'completed');
+  const timestampPart = String(startedAt || new Date().toISOString()).replace(/[:.]/g, '-');
+  return `${pipelinePart}_${statusPart}_${timestampPart}.txt`;
+}
+
+function setReportView({ meta = '', content = '', filename = null }) {
+  reportMeta.textContent = meta;
+  reportOutput.textContent = content;
+  currentReportFilename = filename;
+
+  if (downloadReportButton) {
+    downloadReportButton.disabled = !content;
+  }
 }
 
 function getAuthSettings() {
@@ -138,13 +165,17 @@ async function refreshRuns() {
 async function viewRun(runId) {
   const run = await getRun(runId);
   if (!run) {
-    reportMeta.textContent = '';
-    reportOutput.textContent = 'Run not found.';
+    setReportView({
+      content: 'Run not found.',
+    });
     return;
   }
 
-  reportMeta.textContent = `${run.pipelineName} • ${run.status} • ${formatTime(run.startedAt)} • ${run.humanReadableInterval || run.providedInterval || '-'}`;
-  reportOutput.textContent = run.reportContent || 'No cached report content.';
+  setReportView({
+    meta: `${run.pipelineName} • ${run.status} • ${formatTime(run.startedAt)} • ${run.humanReadableInterval || run.providedInterval || '-'}`,
+    content: run.reportContent || 'No cached report content.',
+    filename: run.reportFilename || buildReportFilename(run),
+  });
 }
 
 async function resolveConfig() {
@@ -202,8 +233,11 @@ async function runPipeline() {
 
   await refreshRuns();
   await viewRun(pendingRun.id);
-  reportMeta.textContent = `Local Run ${pendingRun.id} • ${pipelineName}`;
-  reportOutput.textContent = pendingRun.reportContent;
+  setReportView({
+    meta: `Local Run ${pendingRun.id} • ${pipelineName}`,
+    content: pendingRun.reportContent,
+    filename: buildReportFilename(pendingRun),
+  });
   setStatus(pipelineStatus, `Running ${pipelineName} in the browser...`, '');
 
   try {
@@ -238,7 +272,11 @@ async function runPipeline() {
       humanReadableInterval: result.humanReadableInterval,
       startedAt,
       durationMs: Date.now() - new Date(startedAt).getTime(),
-      reportFilename: null,
+      reportFilename: buildReportFilename({
+        pipelineName,
+        status: 'completed',
+        startedAt,
+      }),
       reportContent: result.reportContent,
       summary: result.summary,
       metadata: {
@@ -250,8 +288,11 @@ async function runPipeline() {
     await refreshRuns();
     await viewRun(completedRun.id);
 
-    reportMeta.textContent = `Local Run ${completedRun.id} • ${pipelineName}`;
-    reportOutput.textContent = result.reportContent;
+    setReportView({
+      meta: `Local Run ${completedRun.id} • ${pipelineName}`,
+      content: result.reportContent,
+      filename: completedRun.reportFilename,
+    });
     const modeSuffix = result.billingMode ? ` in ${result.billingMode} mode` : '';
     setStatus(pipelineStatus, `${pipelineName} completed${modeSuffix} and was saved locally.`, 'ok');
     setStatus(runsStatus, `Saved ${pipelineName} run ${completedRun.id}.`, 'ok');
@@ -264,7 +305,11 @@ async function runPipeline() {
       humanReadableInterval: intervalInput,
       startedAt,
       durationMs: Date.now() - new Date(startedAt).getTime(),
-      reportFilename: null,
+      reportFilename: buildReportFilename({
+        pipelineName,
+        status: 'failed',
+        startedAt,
+      }),
       reportContent: `Pipeline failed:\n${error.message}`,
       summary: null,
       metadata: {
@@ -275,8 +320,11 @@ async function runPipeline() {
 
     await refreshRuns();
     await viewRun(failedRun.id);
-    reportMeta.textContent = `Local Run ${failedRun.id} • ${pipelineName}`;
-    reportOutput.textContent = `Pipeline failed:\n${error.message}`;
+    setReportView({
+      meta: `Local Run ${failedRun.id} • ${pipelineName}`,
+      content: `Pipeline failed:\n${error.message}`,
+      filename: failedRun.reportFilename,
+    });
     setStatus(runsStatus, `Saved failed ${pipelineName} run ${failedRun.id}.`, 'error');
     throw error;
   }
@@ -294,9 +342,33 @@ async function cleanupRuns() {
 async function clearRuns() {
   await clearAllRuns();
   await refreshRuns();
-  reportMeta.textContent = '';
-  reportOutput.textContent = 'Local Last Runs cleared.';
+  setReportView({
+    content: 'Local Last Runs cleared.',
+  });
   setStatus(runsStatus, 'All local runs cleared.', 'ok');
+}
+
+function downloadCurrentReport() {
+  const content = reportOutput.textContent || '';
+  if (!content) {
+    setStatus(runsStatus, 'No report content available to download.', 'error');
+    return;
+  }
+
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = currentReportFilename || buildReportFilename({
+    pipelineName: 'report',
+    status: 'download',
+    startedAt: new Date().toISOString(),
+  });
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+  setStatus(runsStatus, `Downloaded ${link.download}.`, 'ok');
 }
 
 signOutButton.addEventListener('click', async () => {
@@ -343,6 +415,12 @@ clearRunsButton.addEventListener('click', async () => {
   }
 });
 
+if (downloadReportButton) {
+  downloadReportButton.addEventListener('click', () => {
+    downloadCurrentReport();
+  });
+}
+
 pipelineForm.addEventListener('submit', async (event) => {
   event.preventDefault();
 
@@ -370,6 +448,9 @@ runsBody.addEventListener('click', async (event) => {
 async function boot() {
   if (buildVersion) {
     buildVersion.textContent = `Build: ${APP_BUILD_ID}`;
+  }
+  if (downloadReportButton) {
+    downloadReportButton.disabled = true;
   }
   getAuthSettings();
   logSystemStatus('boot-start');
