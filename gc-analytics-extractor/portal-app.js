@@ -28,10 +28,12 @@ import {
 } from './local-run-store.js';
 
 const buildVersion = document.getElementById('build-version');
+const authenticatedUser = document.getElementById('authenticated-user');
 const signOutButton = document.getElementById('sign-out-button');
 const authStatus = document.getElementById('auth-status');
 const pipelineForm = document.getElementById('pipeline-form');
 const pipelineNameSelect = document.getElementById('pipeline-name');
+const pipelineIntervalPresetSelect = document.getElementById('pipeline-interval-preset');
 const pipelineIntervalInput = document.getElementById('pipeline-interval');
 const pipelineStatus = document.getElementById('pipeline-status');
 const cleanupRunsButton = document.getElementById('cleanup-runs-button');
@@ -46,6 +48,15 @@ const reportOutput = document.getElementById('report-output');
 
 let resolvedConfig = null;
 let currentReportFilename = null;
+
+const INTERVAL_PRESET_LABELS = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  thisweek: 'This Week',
+  lastweek: 'Last Week',
+  thismonth: 'This Month',
+  lastmonth: 'Last Month',
+};
 
 function setStatus(element, message, type = '') {
   if (!element) {
@@ -147,15 +158,8 @@ function renderBotflowStructuredReport(reportData) {
 
   const html = `
     ${highlightsHtml ? `<section class="kpi-grid">${highlightsHtml}</section>` : ''}
-    ${renderReportDetailsSection('Run Context', reportData.contextRows || [], { open: true })}
     ${renderReportDetailsSection(reportData.voice?.divisionTitle, reportData.voice?.divisionRows || [], { open: true })}
     ${renderReportDetailsSection(reportData.digital?.divisionTitle, reportData.digital?.divisionRows || [], { open: true })}
-    ${renderReportDetailsSection('Voice Summary', reportData.voice?.summaryRows || [], { open: true })}
-    ${renderReportDetailsSection('Digital Summary', reportData.digital?.summaryRows || [], { open: true })}
-    ${renderReportDetailsSection(reportData.voice?.flowTitle, reportData.voice?.flowRows || [], { open: false })}
-    ${renderReportDetailsSection(reportData.digital?.flowTitle, reportData.digital?.flowRows || [], { open: false })}
-    ${renderReportDetailsSection(reportData.digital?.aggregateMetricTitle, reportData.digital?.aggregateMetricRows || [], { open: false })}
-    ${renderReportDetailsSection(reportData.digital?.sessionTitle, reportData.digital?.sessionRows || [], { open: false })}
   `;
 
   reportStructured.innerHTML = html;
@@ -192,6 +196,83 @@ function getAuthSettings() {
     ...AUTH_BOOTSTRAP_SETTINGS,
     redirectUri: window.location.href.split('?')[0],
   });
+}
+
+function syncIntervalInputVisibility() {
+  if (!pipelineIntervalPresetSelect || !pipelineIntervalInput) {
+    return;
+  }
+
+  const isCustom = pipelineIntervalPresetSelect.value === 'custom';
+  pipelineIntervalInput.classList.toggle('hidden', !isCustom);
+  pipelineIntervalInput.required = isCustom;
+
+  if (!isCustom) {
+    pipelineIntervalInput.value = '';
+  }
+}
+
+function getSelectedIntervalConfig() {
+  const preset = pipelineIntervalPresetSelect?.value || 'yesterday';
+  if (preset !== 'custom') {
+    return {
+      intervalInput: preset,
+      humanReadableInterval: INTERVAL_PRESET_LABELS[preset] || preset,
+    };
+  }
+
+  const customValue = pipelineIntervalInput?.value.trim() || '';
+  if (!customValue) {
+    throw new Error('Custom time frame is required.');
+  }
+
+  return {
+    intervalInput: customValue,
+    humanReadableInterval: customValue,
+  };
+}
+
+async function loadAuthenticatedUser() {
+  if (!authenticatedUser) {
+    return;
+  }
+
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    authenticatedUser.textContent = '';
+    return;
+  }
+
+  const { environment } = getAuthSettings();
+
+  try {
+    const response = await fetch(`https://api.${environment}/api/v2/users/me`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(payload?.message || `Failed to load user profile (${response.status}).`);
+    }
+
+    const name = payload?.name
+      || [payload?.firstName, payload?.lastName].filter(Boolean).join(' ')
+      || payload?.email
+      || payload?.username
+      || '';
+
+    authenticatedUser.textContent = name ? `Signed in as ${name}` : '';
+    console.info('[Portal User]', {
+      id: payload?.id || null,
+      name: payload?.name || name || null,
+      email: payload?.email || null,
+    });
+  } catch (error) {
+    authenticatedUser.textContent = '';
+    console.warn('[Portal User] Failed to load authenticated user.', error);
+  }
 }
 
 function logSystemStatus(reason) {
@@ -306,7 +387,8 @@ async function runPipeline() {
   }
 
   const pipelineName = pipelineNameSelect.value;
-  const intervalInput = pipelineIntervalInput.value.trim() || 'yesterday';
+  const selectedInterval = getSelectedIntervalConfig();
+  const intervalInput = selectedInterval.intervalInput;
 
   const runId = window.crypto.randomUUID();
   const startedAt = new Date().toISOString();
@@ -315,11 +397,11 @@ async function runPipeline() {
     pipelineName,
     status: 'running',
     providedInterval: intervalInput,
-    humanReadableInterval: intervalInput,
+    humanReadableInterval: selectedInterval.humanReadableInterval,
     startedAt,
     durationMs: null,
     reportFilename: null,
-    reportContent: 'Running botflowCost in the browser...',
+    reportContent: `Running ${pipelineName} in the browser...`,
     reportData: null,
     summary: null,
     metadata: {
@@ -330,13 +412,6 @@ async function runPipeline() {
 
   await refreshRuns();
   await viewRun(pendingRun.id);
-  setReportView({
-    meta: `Local Run ${pendingRun.id} • ${pipelineName}`,
-    content: pendingRun.reportContent,
-    filename: buildReportFilename(pendingRun),
-    reportData: null,
-    rawExpanded: true,
-  });
   setStatus(pipelineStatus, `Running ${pipelineName} in the browser...`, '');
 
   try {
@@ -387,14 +462,6 @@ async function runPipeline() {
 
     await refreshRuns();
     await viewRun(completedRun.id);
-
-    setReportView({
-      meta: `Local Run ${completedRun.id} • ${pipelineName}`,
-      content: result.reportContent,
-      filename: completedRun.reportFilename,
-      reportData: result.reportData || null,
-      rawExpanded: !result.reportData,
-    });
     const modeSuffix = result.billingMode ? ` in ${result.billingMode} mode` : '';
     setStatus(pipelineStatus, `${pipelineName} completed${modeSuffix} and was saved locally.`, 'ok');
     setStatus(runsStatus, `Saved ${pipelineName} run ${completedRun.id}.`, 'ok');
@@ -423,13 +490,6 @@ async function runPipeline() {
 
     await refreshRuns();
     await viewRun(failedRun.id);
-    setReportView({
-      meta: `Local Run ${failedRun.id} • ${pipelineName}`,
-      content: `Pipeline failed:\n${error.message}`,
-      filename: failedRun.reportFilename,
-      reportData: null,
-      rawExpanded: true,
-    });
     setStatus(runsStatus, `Saved failed ${pipelineName} run ${failedRun.id}.`, 'error');
     throw error;
   }
@@ -481,6 +541,9 @@ function downloadCurrentReport() {
 signOutButton.addEventListener('click', async () => {
   clearAuthState();
   clearResolvedConfig();
+  if (authenticatedUser) {
+    authenticatedUser.textContent = '';
+  }
   logSystemStatus('reauthenticate');
   setStatus(authStatus, 'Redirecting to Genesys login...', '');
   try {
@@ -509,6 +572,12 @@ clearRunsButton.addEventListener('click', async () => {
 if (downloadReportButton) {
   downloadReportButton.addEventListener('click', () => {
     downloadCurrentReport();
+  });
+}
+
+if (pipelineIntervalPresetSelect) {
+  pipelineIntervalPresetSelect.addEventListener('change', () => {
+    syncIntervalInputVisibility();
   });
 }
 
@@ -543,6 +612,7 @@ async function boot() {
   if (downloadReportButton) {
     downloadReportButton.disabled = true;
   }
+  syncIntervalInputVisibility();
   getAuthSettings();
   logSystemStatus('boot-start');
   await ensureRetentionPolicy({ retentionDays: DEFAULT_RETENTION_DAYS });
@@ -570,6 +640,8 @@ async function boot() {
     return;
   }
 
+  await loadAuthenticatedUser();
+
   if (getAccessToken() && loadCachedConfigPointer()) {
     console.info('[Portal Config]', {
       message: 'Cached config pointer found.',
@@ -577,7 +649,7 @@ async function boot() {
     });
   }
 
-  setStatus(pipelineStatus, 'Ready to run browser botflowCost.', '');
+  setStatus(pipelineStatus, 'Ready to run browser pipelines.', '');
 }
 
 boot().catch((error) => {

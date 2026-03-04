@@ -1307,19 +1307,12 @@ function buildBotflowReportData(
     generatedAt: new Date().toISOString(),
     billingMode,
     highlights: [
+      { label: 'Time Frame', value: humanReadableInterval },
       { label: 'Billing Mode', value: billingMode },
       { label: voiceHeadlineLabel, value: voiceHeadlineValue.toFixed(2) },
       { label: digitalHeadlineLabel, value: billingMode === 'recent' ? String(digitalHeadlineValue) : Number(digitalHeadlineValue).toFixed(2) },
-      { label: 'Aggregate Seed Source', value: aggregateSeedData.source },
-    ],
-    contextRows: [
-      { metric: 'Voice Bot Flows', value: String(voiceSummary.totalFlows) },
-      { metric: 'Digital Bot Flows', value: String(digitalSummary.totalFlows) },
-      { metric: 'Aggregate Seed Source', value: aggregateSeedData.source },
-      { metric: 'Digital Billing Rule', value: `ceil(sessionTurns / ${TURNS_PER_BILLING_UNIT}) per session` },
-      { metric: 'Voice Billing Rule', value: `${VOICE_BILLING_INCREMENT_SECONDS}-second session increments, then total rounded to minutes` },
-      ...(digitalCalibration.applied ? [{ metric: 'Digital Calibration Factor', value: `${digitalCalibration.factor.toFixed(4)} (${digitalCalibration.interval})` }] : []),
-      ...(voiceCalibration.applied ? [{ metric: 'Voice Calibration Factor', value: `${voiceCalibration.factor.toFixed(4)} (${voiceCalibration.interval})` }] : []),
+      { label: 'Voice Bot Flows', value: String(voiceSummary.totalFlows) },
+      { label: 'Digital Bot Flows', value: String(digitalSummary.totalFlows) },
     ],
     voice: {
       confidence: voiceConfidence,
@@ -1404,7 +1397,6 @@ function generateCombinedReport(
 
   reportContent += 'Billing Model\n';
   reportContent += '-------------\n';
-  reportContent += `- Primary discovery source: ${aggregateSeedData.source}.\n`;
   reportContent += `- Billing mode: ${billingMode}.\n`;
   reportContent += `- Digital bot billing: ceil(sessionTurns / ${TURNS_PER_BILLING_UNIT}) per session.\n`;
   reportContent += `- Voice bot billing: meter each session in ${VOICE_BILLING_INCREMENT_SECONDS}-second increments, then round the total metered minutes to the nearest whole minute.\n`;
@@ -1729,7 +1721,6 @@ async function runBotflowCostAggregate({ environment, accessToken, intervalInput
         estimatedBillableMinutes: Number(voiceSummary.estimatedBillableMinutes.toFixed(2)),
         estimatedMeteredBillableMinutes: Number(voiceSummary.estimatedBillableMinutes.toFixed(2)),
       },
-      aggregateSeedSource: aggregateSeedData.source,
       calibrationApplied: digitalCalibration.applied || voiceCalibration.applied,
       calibrationFactor: Number(digitalCalibration.factor.toFixed(4)),
       voiceCalibrationApplied: voiceCalibration.applied,

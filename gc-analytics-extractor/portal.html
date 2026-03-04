@@ -18,6 +18,7 @@
       <p class="eyebrow">Genesys Cloud Analytics</p>
       <h1>Genesys Analytics Portal</h1>
       <p class="subtitle">Run analytics cost allocation pipelines directly in the browser with tenant config stored in Genesys Cloud.</p>
+      <p id="authenticated-user" class="user-line"></p>
       <div class="section-head">
         <p id="auth-status" class="status"></p>
         <button id="sign-out-button" type="button" class="secondary">Re-authenticate</button>
@@ -37,8 +38,19 @@
         </label>
 
         <label>
-          <span>Interval</span>
-          <input id="pipeline-interval" type="text" value="yesterday" />
+          <span>Time Frame</span>
+          <div class="interval-group">
+            <select id="pipeline-interval-preset">
+              <option value="today">Today</option>
+              <option value="yesterday" selected>Yesterday</option>
+              <option value="thisweek">This Week</option>
+              <option value="lastweek">Last Week</option>
+              <option value="thismonth">This Month</option>
+              <option value="lastmonth">Last Month</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input id="pipeline-interval" type="text" class="hidden" placeholder="today or 2026-03-01/2026-03-07" />
+          </div>
         </label>
 
         <div class="pkce-actions pkce-wide">
