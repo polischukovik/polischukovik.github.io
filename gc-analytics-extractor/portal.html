@@ -49,7 +49,10 @@
               <option value="lastmonth">Last Month</option>
               <option value="custom">Custom</option>
             </select>
-            <input id="pipeline-interval" type="text" class="hidden" placeholder="today or 2026-03-01/2026-03-07" />
+            <div id="pipeline-custom-range" class="custom-range hidden">
+              <input id="pipeline-start-date" type="date" />
+              <input id="pipeline-end-date" type="date" />
+            </div>
           </div>
         </label>
 
@@ -57,17 +60,12 @@
           <button type="submit">Run Pipeline</button>
         </div>
       </form>
-      <p class="small">The frontend runtime now runs `botflowCost` and `smsCost` in the browser using the same calculation paths as the backend pipelines.</p>
       <p id="pipeline-status" class="status"></p>
     </section>
 
     <section class="panel">
       <div class="section-head">
         <h2>Local Last Runs</h2>
-        <div class="pkce-actions">
-          <button id="cleanup-runs-button" type="button" class="secondary">Run TTL Cleanup</button>
-          <button id="clear-runs-button" type="button" class="secondary">Clear All Runs</button>
-        </div>
       </div>
       <p id="runs-status" class="status"></p>
       <div class="table-wrap">

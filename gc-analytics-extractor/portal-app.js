@@ -20,7 +20,6 @@ import { runBotflowCostAggregate } from './frontend-botflow.js';
 import { runSmsCost } from './frontend-sms.js';
 import {
   DEFAULT_RETENTION_DAYS,
-  clearAllRuns,
   ensureRetentionPolicy,
   getRun,
   listRuns,
@@ -34,10 +33,10 @@ const authStatus = document.getElementById('auth-status');
 const pipelineForm = document.getElementById('pipeline-form');
 const pipelineNameSelect = document.getElementById('pipeline-name');
 const pipelineIntervalPresetSelect = document.getElementById('pipeline-interval-preset');
-const pipelineIntervalInput = document.getElementById('pipeline-interval');
+const pipelineCustomRange = document.getElementById('pipeline-custom-range');
+const pipelineStartDateInput = document.getElementById('pipeline-start-date');
+const pipelineEndDateInput = document.getElementById('pipeline-end-date');
 const pipelineStatus = document.getElementById('pipeline-status');
-const cleanupRunsButton = document.getElementById('cleanup-runs-button');
-const clearRunsButton = document.getElementById('clear-runs-button');
 const runsStatus = document.getElementById('runs-status');
 const runsBody = document.getElementById('runs-body');
 const reportMeta = document.getElementById('report-meta');
@@ -77,6 +76,33 @@ function formatDuration(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-';
   if (value < 1000) return `${value} ms`;
   return `${(value / 1000).toFixed(2)} s`;
+}
+
+function formatDateOnly(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value || '');
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
+function formatDateRangeFromInterval(intervalValue) {
+  const interval = String(intervalValue || '');
+  if (!interval.includes('/')) {
+    return interval;
+  }
+
+  const [startRaw, endRaw] = interval.split('/');
+  const start = new Date(startRaw);
+  const endExclusive = new Date(endRaw);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(endExclusive.getTime())) {
+    return interval;
+  }
+
+  const endInclusive = new Date(endExclusive.getTime());
+  endInclusive.setUTCDate(endInclusive.getUTCDate() - 1);
+  return `${formatDateOnly(start)} to ${formatDateOnly(endInclusive)}`;
 }
 
 function sanitizeFilenamePart(value) {
@@ -191,6 +217,16 @@ function setReportView({ meta = '', content = '', filename = null, reportData = 
   }
 }
 
+function buildReportMeta(run) {
+  const timeFrame = run?.metadata?.reportDateRange
+    || (run?.reportData?.interval ? formatDateRangeFromInterval(run.reportData.interval) : '')
+    || run?.humanReadableInterval
+    || run?.providedInterval
+    || '-';
+
+  return `${run.pipelineName} • ${run.status} • ${timeFrame} • ${formatTime(run.startedAt)}`;
+}
+
 function getAuthSettings() {
   return saveAuthSettings({
     ...AUTH_BOOTSTRAP_SETTINGS,
@@ -199,36 +235,83 @@ function getAuthSettings() {
 }
 
 function syncIntervalInputVisibility() {
-  if (!pipelineIntervalPresetSelect || !pipelineIntervalInput) {
+  if (!pipelineIntervalPresetSelect || !pipelineCustomRange || !pipelineStartDateInput || !pipelineEndDateInput) {
     return;
   }
 
   const isCustom = pipelineIntervalPresetSelect.value === 'custom';
-  pipelineIntervalInput.classList.toggle('hidden', !isCustom);
-  pipelineIntervalInput.required = isCustom;
+  pipelineCustomRange.classList.toggle('hidden', !isCustom);
+  pipelineStartDateInput.required = isCustom;
+  pipelineEndDateInput.required = isCustom;
 
   if (!isCustom) {
-    pipelineIntervalInput.value = '';
+    pipelineStartDateInput.value = '';
+    pipelineEndDateInput.value = '';
   }
 }
 
 function getSelectedIntervalConfig() {
   const preset = pipelineIntervalPresetSelect?.value || 'yesterday';
   if (preset !== 'custom') {
+    const now = new Date();
+    const startOfUtcDay = (date) => new Date(Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      0, 0, 0, 0
+    ));
+    let start;
+    let endExclusive;
+
+    if (preset === 'today') {
+      start = startOfUtcDay(now);
+      endExclusive = new Date(start.getTime() + (24 * 60 * 60 * 1000));
+    } else if (preset === 'yesterday') {
+      endExclusive = startOfUtcDay(now);
+      start = new Date(endExclusive.getTime() - (24 * 60 * 60 * 1000));
+    } else if (preset === 'thisweek') {
+      endExclusive = startOfUtcDay(now);
+      const day = endExclusive.getUTCDay();
+      const offset = day === 0 ? 6 : day - 1;
+      start = new Date(endExclusive.getTime() - (offset * 24 * 60 * 60 * 1000));
+      endExclusive = new Date(start.getTime() + (7 * 24 * 60 * 60 * 1000));
+    } else if (preset === 'lastweek') {
+      const todayStart = startOfUtcDay(now);
+      const day = todayStart.getUTCDay();
+      const offset = day === 0 ? 6 : day - 1;
+      const thisWeekStart = new Date(todayStart.getTime() - (offset * 24 * 60 * 60 * 1000));
+      start = new Date(thisWeekStart.getTime() - (7 * 24 * 60 * 60 * 1000));
+      endExclusive = thisWeekStart;
+    } else if (preset === 'thismonth') {
+      start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+      endExclusive = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+    } else if (preset === 'lastmonth') {
+      start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0, 0));
+      endExclusive = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    } else {
+      throw new Error(`Unsupported time frame "${preset}".`);
+    }
+
     return {
       intervalInput: preset,
       humanReadableInterval: INTERVAL_PRESET_LABELS[preset] || preset,
+      reportDateRange: formatDateRangeFromInterval(`${start.toISOString()}/${endExclusive.toISOString()}`),
     };
   }
 
-  const customValue = pipelineIntervalInput?.value.trim() || '';
-  if (!customValue) {
-    throw new Error('Custom time frame is required.');
+  const startDate = pipelineStartDateInput?.value || '';
+  const endDate = pipelineEndDateInput?.value || '';
+  if (!startDate || !endDate) {
+    throw new Error('Custom start and end dates are required.');
+  }
+  if (startDate > endDate) {
+    throw new Error('Custom start date must be on or before the end date.');
   }
 
   return {
-    intervalInput: customValue,
-    humanReadableInterval: customValue,
+    intervalInput: `${startDate}/${endDate}`,
+    humanReadableInterval: `${startDate} to ${endDate}`,
+    reportDateRange: `${startDate} to ${endDate}`,
   };
 }
 
@@ -348,7 +431,7 @@ async function viewRun(runId) {
   }
 
   setReportView({
-    meta: `${run.pipelineName} • ${run.status} • ${formatTime(run.startedAt)} • ${run.humanReadableInterval || run.providedInterval || '-'}`,
+    meta: buildReportMeta(run),
     content: run.reportContent || 'No cached report content.',
     filename: run.reportFilename || buildReportFilename(run),
     reportData: run.reportData,
@@ -397,7 +480,7 @@ async function runPipeline() {
     pipelineName,
     status: 'running',
     providedInterval: intervalInput,
-    humanReadableInterval: selectedInterval.humanReadableInterval,
+    humanReadableInterval: selectedInterval.reportDateRange,
     startedAt,
     durationMs: null,
     reportFilename: null,
@@ -407,6 +490,7 @@ async function runPipeline() {
     metadata: {
       source: 'browser-shell',
       mode: 'pending',
+      reportDateRange: selectedInterval.reportDateRange,
     },
   });
 
@@ -443,7 +527,7 @@ async function runPipeline() {
       pipelineName,
       status: 'completed',
       providedInterval: intervalInput,
-      humanReadableInterval: result.humanReadableInterval,
+      humanReadableInterval: formatDateRangeFromInterval(result.interval),
       startedAt,
       durationMs: Date.now() - new Date(startedAt).getTime(),
       reportFilename: buildReportFilename({
@@ -457,6 +541,8 @@ async function runPipeline() {
       metadata: {
         source: 'browser-shell',
         mode: result.billingMode || 'frontend',
+        reportDateRange: formatDateRangeFromInterval(result.interval),
+        resolvedInterval: result.interval,
       },
     });
 
@@ -485,6 +571,7 @@ async function runPipeline() {
       metadata: {
         source: 'browser-shell',
         mode: 'failed',
+        reportDateRange: selectedInterval.reportDateRange,
       },
     });
 
@@ -493,26 +580,6 @@ async function runPipeline() {
     setStatus(runsStatus, `Saved failed ${pipelineName} run ${failedRun.id}.`, 'error');
     throw error;
   }
-}
-
-async function cleanupRuns() {
-  const result = await ensureRetentionPolicy({
-    retentionDays: DEFAULT_RETENTION_DAYS,
-    minIntervalHours: 0,
-  });
-  await refreshRuns();
-  setStatus(runsStatus, `TTL cleanup complete. Deleted ${result.deletedCount || 0} run(s).`, 'ok');
-}
-
-async function clearRuns() {
-  await clearAllRuns();
-  await refreshRuns();
-  setReportView({
-    content: 'Local Last Runs cleared.',
-    reportData: null,
-    rawExpanded: true,
-  });
-  setStatus(runsStatus, 'All local runs cleared.', 'ok');
 }
 
 function downloadCurrentReport() {
@@ -545,27 +612,11 @@ signOutButton.addEventListener('click', async () => {
     authenticatedUser.textContent = '';
   }
   logSystemStatus('reauthenticate');
-  setStatus(authStatus, 'Redirecting to Genesys login...', '');
+  setStatus(authStatus, '', '');
   try {
     await startPkceLogin(getAuthSettings());
   } catch (error) {
     setStatus(authStatus, error.message, 'error');
-  }
-});
-
-cleanupRunsButton.addEventListener('click', async () => {
-  try {
-    await cleanupRuns();
-  } catch (error) {
-    setStatus(runsStatus, error.message, 'error');
-  }
-});
-
-clearRunsButton.addEventListener('click', async () => {
-  try {
-    await clearRuns();
-  } catch (error) {
-    setStatus(runsStatus, error.message, 'error');
   }
 });
 
@@ -620,10 +671,9 @@ async function boot() {
 
   if (hasCallbackPayload()) {
     try {
-      setStatus(authStatus, 'Completing PKCE callback...', '');
       const result = await completePkceCallback(getAuthSettings());
       if (result.completed) {
-        setStatus(authStatus, 'Authenticated successfully.', 'ok');
+        setStatus(authStatus, '', '');
         logSystemStatus('callback-complete');
       }
     } catch (error) {
@@ -631,10 +681,10 @@ async function boot() {
       logSystemStatus('callback-error');
     }
   } else if (getAccessToken()) {
-    setStatus(authStatus, 'Authenticated. Browser token is present.', 'ok');
+    setStatus(authStatus, '', '');
     logSystemStatus('token-present');
   } else {
-    setStatus(authStatus, 'Redirecting to Genesys login...', '');
+    setStatus(authStatus, '', '');
     logSystemStatus('auto-login');
     await startPkceLogin(getAuthSettings());
     return;

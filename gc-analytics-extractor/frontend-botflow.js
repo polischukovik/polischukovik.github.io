@@ -1307,12 +1307,9 @@ function buildBotflowReportData(
     generatedAt: new Date().toISOString(),
     billingMode,
     highlights: [
-      { label: 'Time Frame', value: humanReadableInterval },
       { label: 'Billing Mode', value: billingMode },
       { label: voiceHeadlineLabel, value: voiceHeadlineValue.toFixed(2) },
       { label: digitalHeadlineLabel, value: billingMode === 'recent' ? String(digitalHeadlineValue) : Number(digitalHeadlineValue).toFixed(2) },
-      { label: 'Voice Bot Flows', value: String(voiceSummary.totalFlows) },
-      { label: 'Digital Bot Flows', value: String(digitalSummary.totalFlows) },
     ],
     voice: {
       confidence: voiceConfidence,
