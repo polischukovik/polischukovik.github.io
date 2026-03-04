@@ -1,1 +1,1 @@
-import './portal-app.js';
+import './portal.js';

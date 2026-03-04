@@ -1,4 +1,4 @@
-import { parseFrontendConfigJson } from './frontend-config.js';
+import { parseFrontendConfigJson } from './config.js';
 
 const CONFIG_WORKSPACE_NAME = 'gc-app-config';
 const CONFIG_DOCUMENT_NAME = 'gc-analytics-extractor.json';

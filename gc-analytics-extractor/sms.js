@@ -6,8 +6,8 @@ import {
   OUTBOUND_SMS_PRICING_USD,
   countryTypeToRateClassInbound,
   countryTypeToRateClassOutbound,
-} from './frontend-sms-config.js';
-import { mergeSmsCostConfig } from './frontend-config.js';
+} from './sms-config.js';
+import { mergeSmsCostConfig } from './config.js';
 
 const entityCache = new Map();
 

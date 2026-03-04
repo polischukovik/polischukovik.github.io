@@ -78,44 +78,6 @@ const countryTypeToRateClass = {
 
 const numberToDivisionMap = {};
 
-// A mapping from country and type to a rate class, if needed.
-// This might be more complex and require manual extraction from the PDF.
-const countryTypeToRateClassInbound = {
-  'US': {
-    'local': 'A',
-    'toll-free': 'A'
-  },
-  'CA': {
-    'local': 'A',
-    'toll-free': 'A'
-  },
-  'AU': { 'local': 'B' },
-  'AT': { 'local': 'B' },
-  'BE': { 'local': 'B' },
-  'CL': { 'local': 'B' },
-  'HR': { 'local': 'B' },
-  'CZ': { 'local': 'B' },
-  'DK': { 'local': 'B' },
-  'EE': { 'local': 'B' },
-  'DE': { 'local': 'B' },
-  'HK': { 'local': 'D' },
-  'HU': { 'local': 'B' },
-  'IE': { 'local': 'B' },
-  'IL': { 'local': 'B' },
-  'IT': { 'local': 'C' },
-  'LT': { 'local': 'B' },
-  'MY': { 'local': 'D' },
-  'NL': { 'local': 'B' },
-  'PL': { 'local': 'B' },
-  'PT': { 'local': 'E' },
-  'PR': { 'local': 'B' },
-  'SG': { 'local': 'E' },
-  'ES': { 'local': 'B' },
-  'CH': { 'local': 'B' },
-	'GB': { 'local': 'B' },
-  'UK': { 'local': 'B' }
-};
-
 const countryTypeToRateClassOutbound = {
   "US": { "local": "A", "toll-free": "A" },
   "CA": { "local": "B", "toll-free": "B" },

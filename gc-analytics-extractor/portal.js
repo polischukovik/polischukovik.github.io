@@ -7,17 +7,17 @@ import {
   hasCallbackPayload,
   saveAuthSettings,
   startPkceLogin,
-} from './frontend-auth.js';
+} from './auth.js';
 import { AUTH_BOOTSTRAP_SETTINGS } from './auth-bootstrap.js';
-import { APP_BUILD_ID } from './frontend-build.js';
+import { APP_BUILD_ID } from './build.js';
 import {
   CONFIG_DOCUMENT_NAME,
   CONFIG_WORKSPACE_NAME,
   loadCachedConfigPointer,
   loadFrontendConfig,
-} from './frontend-config-resolver.js';
-import { runBotflowCostAggregate } from './frontend-botflow.js';
-import { runSmsCost } from './frontend-sms.js';
+} from './config-resolver.js';
+import { runBotflowCostAggregate } from './botflow.js';
+import { runSmsCost } from './sms.js';
 import {
   DEFAULT_RETENTION_DAYS,
   ensureRetentionPolicy,
