@@ -13,7 +13,6 @@ import { APP_BUILD_ID } from './frontend-build.js';
 import {
   CONFIG_DOCUMENT_NAME,
   CONFIG_WORKSPACE_NAME,
-  clearCachedConfigPointer,
   loadCachedConfigPointer,
   loadFrontendConfig,
 } from './frontend-config-resolver.js';
@@ -31,10 +30,6 @@ import {
 const buildVersion = document.getElementById('build-version');
 const signOutButton = document.getElementById('sign-out-button');
 const authStatus = document.getElementById('auth-status');
-const resolveConfigButton = document.getElementById('resolve-config-button');
-const clearConfigPointerButton = document.getElementById('clear-config-pointer-button');
-const configStatus = document.getElementById('config-status');
-const configOutput = document.getElementById('config-output');
 const pipelineForm = document.getElementById('pipeline-form');
 const pipelineNameSelect = document.getElementById('pipeline-name');
 const pipelineIntervalInput = document.getElementById('pipeline-interval');
@@ -51,6 +46,9 @@ let resolvedConfig = null;
 let currentReportFilename = null;
 
 function setStatus(element, message, type = '') {
+  if (!element) {
+    return;
+  }
   element.textContent = message;
   element.className = `status ${type}`.trim();
 }
@@ -186,20 +184,19 @@ async function resolveConfig() {
     throw new Error('Sign in first before resolving config.');
   }
 
-  setStatus(configStatus, 'Resolving config...', '');
   resolvedConfig = await loadFrontendConfig({ environment, accessToken });
-  configOutput.textContent = JSON.stringify({
+  const configDetails = {
     source: resolvedConfig.source,
     pointer: resolvedConfig.pointer,
     config: resolvedConfig.config,
-  }, null, 2);
-  setStatus(configStatus, `Config resolved via ${resolvedConfig.source}.`, 'ok');
+  };
+  console.info('[Portal Config]', configDetails);
   logSystemStatus('config-resolved');
+  return resolvedConfig;
 }
 
 function clearResolvedConfig() {
   resolvedConfig = null;
-  configOutput.textContent = 'No config loaded yet.';
 }
 
 async function runPipeline() {
@@ -376,27 +373,11 @@ signOutButton.addEventListener('click', async () => {
   clearResolvedConfig();
   logSystemStatus('reauthenticate');
   setStatus(authStatus, 'Redirecting to Genesys login...', '');
-  setStatus(configStatus, '', '');
   try {
     await startPkceLogin(getAuthSettings());
   } catch (error) {
     setStatus(authStatus, error.message, 'error');
   }
-});
-
-resolveConfigButton.addEventListener('click', async () => {
-  try {
-    await resolveConfig();
-  } catch (error) {
-    setStatus(configStatus, error.message, 'error');
-  }
-});
-
-clearConfigPointerButton.addEventListener('click', () => {
-  clearCachedConfigPointer();
-  clearResolvedConfig();
-  logSystemStatus('config-pointer-cleared');
-  setStatus(configStatus, 'Cached config pointer cleared.', 'ok');
 });
 
 cleanupRunsButton.addEventListener('click', async () => {
@@ -480,7 +461,10 @@ async function boot() {
   }
 
   if (getAccessToken() && loadCachedConfigPointer()) {
-    setStatus(configStatus, 'Cached config pointer found. Click "Resolve Config" to load the document.', 'ok');
+    console.info('[Portal Config]', {
+      message: 'Cached config pointer found.',
+      cachedConfigPointer: loadCachedConfigPointer(),
+    });
   }
 
   setStatus(pipelineStatus, 'Ready to run browser botflowCost.', '');
