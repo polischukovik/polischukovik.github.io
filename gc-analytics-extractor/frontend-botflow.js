@@ -1252,6 +1252,140 @@ function formatTable(data) {
   return `${headerRow}\n${separator}\n${dataRows}`;
 }
 
+function getConfidenceLabel(billingMode, calibration) {
+  if (billingMode === 'recent') {
+    return 'Exact';
+  }
+
+  return calibration?.applied ? 'Calibrated' : 'Lower Bound';
+}
+
+function buildBotflowReportData(
+  digitalFlowResults,
+  voiceFlowResults,
+  digitalSummary,
+  voiceSummary,
+  aggregateSeedData,
+  billingMode,
+  digitalCalibration,
+  voiceCalibration,
+  genesysCloudInterval,
+  humanReadableInterval
+) {
+  const voiceConfidence = getConfidenceLabel(billingMode, voiceCalibration);
+  const digitalConfidence = getConfidenceLabel(billingMode, digitalCalibration);
+  const useVoiceCalibrated = billingMode === 'historical' && voiceCalibration.applied;
+  const useDigitalCalibrated = billingMode === 'historical' && digitalCalibration.applied;
+  const useExact = billingMode === 'recent';
+
+  const voiceHeadlineLabel = billingMode === 'recent'
+    ? 'Voice Billable Minutes [Exact]'
+    : voiceCalibration.applied
+      ? 'Voice Billable Minutes [Calibrated]'
+      : 'Voice Billable Minutes [Lower Bound]';
+  const digitalHeadlineLabel = billingMode === 'recent'
+    ? 'Digital Billable Units [Exact]'
+    : digitalCalibration.applied
+      ? 'Digital Billable Units [Calibrated]'
+      : 'Digital Billable Units [Lower Bound]';
+
+  const voiceHeadlineValue = billingMode === 'recent'
+    ? voiceSummary.exactBillableMinutes
+    : voiceCalibration.applied
+      ? voiceSummary.calibratedBillableMinutes
+      : voiceSummary.minimumBillableMinutes;
+  const digitalHeadlineValue = billingMode === 'recent'
+    ? digitalSummary.exactBillableUnits
+    : digitalCalibration.applied
+      ? digitalSummary.calibratedBillableUnits
+      : digitalSummary.totalBillableUnits;
+
+  return {
+    type: 'botflowCost',
+    interval: genesysCloudInterval,
+    humanReadableInterval,
+    generatedAt: new Date().toISOString(),
+    billingMode,
+    highlights: [
+      { label: 'Billing Mode', value: billingMode },
+      { label: voiceHeadlineLabel, value: voiceHeadlineValue.toFixed(2) },
+      { label: digitalHeadlineLabel, value: billingMode === 'recent' ? String(digitalHeadlineValue) : Number(digitalHeadlineValue).toFixed(2) },
+      { label: 'Aggregate Seed Source', value: aggregateSeedData.source },
+    ],
+    contextRows: [
+      { metric: 'Voice Bot Flows', value: String(voiceSummary.totalFlows) },
+      { metric: 'Digital Bot Flows', value: String(digitalSummary.totalFlows) },
+      { metric: 'Aggregate Seed Source', value: aggregateSeedData.source },
+      { metric: 'Digital Billing Rule', value: `ceil(sessionTurns / ${TURNS_PER_BILLING_UNIT}) per session` },
+      { metric: 'Voice Billing Rule', value: `${VOICE_BILLING_INCREMENT_SECONDS}-second session increments, then total rounded to minutes` },
+      ...(digitalCalibration.applied ? [{ metric: 'Digital Calibration Factor', value: `${digitalCalibration.factor.toFixed(4)} (${digitalCalibration.interval})` }] : []),
+      ...(voiceCalibration.applied ? [{ metric: 'Voice Calibration Factor', value: `${voiceCalibration.factor.toFixed(4)} (${voiceCalibration.interval})` }] : []),
+    ],
+    voice: {
+      confidence: voiceConfidence,
+      summaryRows: [
+        { metric: 'Total Sessions', value: String(voiceSummary.totalSessions) },
+        { metric: 'Total Runtime Minutes', value: voiceSummary.totalRuntimeMinutes.toFixed(2) },
+        ...(billingMode === 'recent'
+          ? [{ metric: 'Metered Billable Minutes [Exact]', value: voiceSummary.exactBillableMinutes.toFixed(2) }]
+          : [
+              { metric: 'Billable Minutes [Lower Bound]', value: voiceSummary.minimumBillableMinutes.toFixed(2) },
+              ...(voiceCalibration.applied
+                ? [{ metric: 'Billable Minutes [Calibrated]', value: voiceSummary.calibratedBillableMinutes.toFixed(2) }]
+                : []),
+            ]),
+      ],
+      divisionTitle: `Voice Billable Minutes by Division [${voiceConfidence}]`,
+      divisionRows: formatVoiceDivisionRows(voiceFlowResults, {
+        useCalibrated: useVoiceCalibrated,
+      }),
+      flowTitle: `Voice Flow Detail [${voiceConfidence}]`,
+      flowRows: formatVoiceFlowRows(voiceFlowResults, {
+        totalBillableSeconds: useVoiceCalibrated
+          ? voiceSummary.calibratedBillableSeconds
+          : useExact
+            ? voiceSummary.exactBillableSeconds
+            : voiceSummary.minimumBillableSeconds,
+        useCalibrated: useVoiceCalibrated,
+        useExact,
+      }),
+    },
+    digital: {
+      confidence: digitalConfidence,
+      summaryRows: [
+        { metric: 'Total Sessions', value: String(digitalSummary.totalSessions) },
+        { metric: 'Total Bot Session Turns', value: String(digitalSummary.totalTurns) },
+        ...(billingMode === 'recent'
+          ? [{ metric: 'Billable Units [Exact]', value: String(digitalSummary.exactBillableUnits) }]
+          : [
+              { metric: 'Billable Units [Lower Bound]', value: String(digitalSummary.totalBillableUnits) },
+              ...(digitalCalibration.applied
+                ? [{ metric: 'Billable Units [Calibrated]', value: digitalSummary.calibratedBillableUnits.toFixed(2) }]
+                : []),
+            ]),
+      ],
+      divisionTitle: `Digital Billable Units by Division [${digitalConfidence}]`,
+      divisionRows: aggregateByDivision(digitalFlowResults, {
+        useCalibrated: useDigitalCalibrated,
+      }),
+      flowTitle: `Digital Flow Detail [${digitalConfidence}]`,
+      flowRows: formatFlowRows(digitalFlowResults, {
+        totalBillableUnits: useDigitalCalibrated
+          ? digitalSummary.calibratedBillableUnits
+          : useExact
+            ? digitalSummary.exactBillableUnits
+            : digitalSummary.totalBillableUnits,
+        useCalibrated: useDigitalCalibrated,
+        useExact,
+      }),
+      aggregateMetricTitle: 'Digital Aggregate Metric Totals',
+      aggregateMetricRows: formatAggregateMetricTotals(digitalFlowResults),
+      sessionTitle: 'Digital Per-Session Detail',
+      sessionRows: formatSessionRows(digitalFlowResults),
+    },
+  };
+}
+
 function generateCombinedReport(
   digitalFlowResults,
   voiceFlowResults,
@@ -1539,6 +1673,18 @@ async function runBotflowCostAggregate({ environment, accessToken, intervalInput
   const digitalSummary = buildSummary(digitalFlowResults);
   const voiceSummary = buildVoiceSummary(voiceFlowResults);
   const humanReadableInterval = resolveHumanReadableInterval(intervalInput, interval);
+  const reportData = buildBotflowReportData(
+    digitalFlowResults,
+    voiceFlowResults,
+    digitalSummary,
+    voiceSummary,
+    aggregateSeedData,
+    billingMode,
+    digitalCalibration,
+    voiceCalibration,
+    interval,
+    humanReadableInterval
+  );
   const reportContent = generateCombinedReport(
     digitalFlowResults,
     voiceFlowResults,
@@ -1556,6 +1702,7 @@ async function runBotflowCostAggregate({ environment, accessToken, intervalInput
     interval,
     humanReadableInterval,
     billingMode,
+    reportData,
     reportContent,
     summary: {
       billingMode,

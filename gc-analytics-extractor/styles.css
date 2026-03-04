@@ -236,6 +236,78 @@ td {
   font-size: 0.85rem;
 }
 
+.report-structured {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.report-structured:empty {
+  display: none;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.kpi-card {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.kpi-label {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.kpi-value {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.report-details {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px 12px;
+}
+
+.report-details summary,
+.raw-report-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.report-details summary {
+  margin: -10px -12px 0;
+  padding: 10px 12px;
+}
+
+.report-details > .table-wrap {
+  margin-top: 10px;
+}
+
+.raw-report-details {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.4);
+  padding: 10px 12px;
+}
+
+.raw-report-details > .report {
+  margin-top: 10px;
+}
+
 .report {
   background: #111827;
   color: #f8fafc;

@@ -83,6 +83,7 @@ function normalizeRunRecord(run) {
     durationMs: Number.isFinite(run.durationMs) ? run.durationMs : null,
     reportFilename: run.reportFilename || null,
     reportContent: typeof run.reportContent === 'string' ? run.reportContent : '',
+    reportData: run.reportData && typeof run.reportData === 'object' ? run.reportData : null,
     summary: run.summary && typeof run.summary === 'object' ? run.summary : null,
     metadata: run.metadata && typeof run.metadata === 'object' ? run.metadata : null,
     savedAt: new Date().toISOString(),

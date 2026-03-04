@@ -40,6 +40,8 @@ const runsStatus = document.getElementById('runs-status');
 const runsBody = document.getElementById('runs-body');
 const reportMeta = document.getElementById('report-meta');
 const downloadReportButton = document.getElementById('download-report-button');
+const reportStructured = document.getElementById('report-structured');
+const rawReportDetails = document.getElementById('raw-report-details');
 const reportOutput = document.getElementById('report-output');
 
 let resolvedConfig = null;
@@ -81,10 +83,104 @@ function buildReportFilename({ pipelineName, status, startedAt }) {
   return `${pipelinePart}_${statusPart}_${timestampPart}.txt`;
 }
 
-function setReportView({ meta = '', content = '', filename = null }) {
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderStructuredTable(rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return '<p class="small">No data to display.</p>';
+  }
+
+  const headers = Object.keys(rows[0]);
+  const headerHtml = headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('');
+  const bodyHtml = rows.map((row) => (
+    `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join('')}</tr>`
+  )).join('');
+
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>${headerHtml}</tr>
+        </thead>
+        <tbody>
+          ${bodyHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderReportDetailsSection(title, rows, options = {}) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return '';
+  }
+
+  const openAttr = options.open ? ' open' : '';
+  return `
+    <details class="report-details"${openAttr}>
+      <summary>${escapeHtml(title)}</summary>
+      ${renderStructuredTable(rows)}
+    </details>
+  `;
+}
+
+function renderBotflowStructuredReport(reportData) {
+  if (!reportData || reportData.type !== 'botflowCost' || !reportStructured) {
+    return false;
+  }
+
+  const highlightsHtml = Array.isArray(reportData.highlights)
+    ? reportData.highlights.map((item) => `
+        <div class="kpi-card">
+          <p class="kpi-label">${escapeHtml(item.label)}</p>
+          <p class="kpi-value">${escapeHtml(item.value)}</p>
+        </div>
+      `).join('')
+    : '';
+
+  const html = `
+    ${highlightsHtml ? `<section class="kpi-grid">${highlightsHtml}</section>` : ''}
+    ${renderReportDetailsSection('Run Context', reportData.contextRows || [], { open: true })}
+    ${renderReportDetailsSection(reportData.voice?.divisionTitle, reportData.voice?.divisionRows || [], { open: true })}
+    ${renderReportDetailsSection(reportData.digital?.divisionTitle, reportData.digital?.divisionRows || [], { open: true })}
+    ${renderReportDetailsSection('Voice Summary', reportData.voice?.summaryRows || [], { open: true })}
+    ${renderReportDetailsSection('Digital Summary', reportData.digital?.summaryRows || [], { open: true })}
+    ${renderReportDetailsSection(reportData.voice?.flowTitle, reportData.voice?.flowRows || [], { open: false })}
+    ${renderReportDetailsSection(reportData.digital?.flowTitle, reportData.digital?.flowRows || [], { open: false })}
+    ${renderReportDetailsSection(reportData.digital?.aggregateMetricTitle, reportData.digital?.aggregateMetricRows || [], { open: false })}
+    ${renderReportDetailsSection(reportData.digital?.sessionTitle, reportData.digital?.sessionRows || [], { open: false })}
+  `;
+
+  reportStructured.innerHTML = html;
+  return true;
+}
+
+function clearStructuredReport() {
+  if (reportStructured) {
+    reportStructured.innerHTML = '';
+  }
+}
+
+function setReportView({ meta = '', content = '', filename = null, reportData = null, rawExpanded = true }) {
   reportMeta.textContent = meta;
   reportOutput.textContent = content;
   currentReportFilename = filename;
+
+  const hasStructuredReport = renderBotflowStructuredReport(reportData);
+  if (!hasStructuredReport) {
+    clearStructuredReport();
+  }
+
+  if (rawReportDetails) {
+    rawReportDetails.open = rawExpanded;
+  }
 
   if (downloadReportButton) {
     downloadReportButton.disabled = !content;
@@ -165,6 +261,7 @@ async function viewRun(runId) {
   if (!run) {
     setReportView({
       content: 'Run not found.',
+      rawExpanded: true,
     });
     return;
   }
@@ -173,6 +270,8 @@ async function viewRun(runId) {
     meta: `${run.pipelineName} • ${run.status} • ${formatTime(run.startedAt)} • ${run.humanReadableInterval || run.providedInterval || '-'}`,
     content: run.reportContent || 'No cached report content.',
     filename: run.reportFilename || buildReportFilename(run),
+    reportData: run.reportData,
+    rawExpanded: !run.reportData,
   });
 }
 
@@ -221,6 +320,7 @@ async function runPipeline() {
     durationMs: null,
     reportFilename: null,
     reportContent: 'Running botflowCost in the browser...',
+    reportData: null,
     summary: null,
     metadata: {
       source: 'browser-shell',
@@ -234,6 +334,8 @@ async function runPipeline() {
     meta: `Local Run ${pendingRun.id} • ${pipelineName}`,
     content: pendingRun.reportContent,
     filename: buildReportFilename(pendingRun),
+    reportData: null,
+    rawExpanded: true,
   });
   setStatus(pipelineStatus, `Running ${pipelineName} in the browser...`, '');
 
@@ -275,6 +377,7 @@ async function runPipeline() {
         startedAt,
       }),
       reportContent: result.reportContent,
+      reportData: result.reportData || null,
       summary: result.summary,
       metadata: {
         source: 'browser-shell',
@@ -289,6 +392,8 @@ async function runPipeline() {
       meta: `Local Run ${completedRun.id} • ${pipelineName}`,
       content: result.reportContent,
       filename: completedRun.reportFilename,
+      reportData: result.reportData || null,
+      rawExpanded: !result.reportData,
     });
     const modeSuffix = result.billingMode ? ` in ${result.billingMode} mode` : '';
     setStatus(pipelineStatus, `${pipelineName} completed${modeSuffix} and was saved locally.`, 'ok');
@@ -308,6 +413,7 @@ async function runPipeline() {
         startedAt,
       }),
       reportContent: `Pipeline failed:\n${error.message}`,
+      reportData: null,
       summary: null,
       metadata: {
         source: 'browser-shell',
@@ -321,6 +427,8 @@ async function runPipeline() {
       meta: `Local Run ${failedRun.id} • ${pipelineName}`,
       content: `Pipeline failed:\n${error.message}`,
       filename: failedRun.reportFilename,
+      reportData: null,
+      rawExpanded: true,
     });
     setStatus(runsStatus, `Saved failed ${pipelineName} run ${failedRun.id}.`, 'error');
     throw error;
@@ -341,6 +449,8 @@ async function clearRuns() {
   await refreshRuns();
   setReportView({
     content: 'Local Last Runs cleared.',
+    reportData: null,
+    rawExpanded: true,
   });
   setStatus(runsStatus, 'All local runs cleared.', 'ok');
 }
