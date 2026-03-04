@@ -4,6 +4,7 @@ const BOT_AGGREGATE_QUERY = {
 };
 
 const MAX_DETAIL_PAGE_SIZE = 250;
+const FLOW_LOOKUP_BATCH_SIZE = 50;
 const TURNS_PER_BILLING_UNIT = 8;
 const VOICE_BILLING_INCREMENT_SECONDS = 15;
 const DIGITAL_BOT_BILLING_UNIT_PRICE_USD = 0;
@@ -372,6 +373,7 @@ async function getAggregateSeedData(environment, accessToken, genesysCloudInterv
     body
   );
   const flows = extractBotSeedsFromAggregates(response);
+  await primeFlowDivisionCache(environment, accessToken, flows);
 
   if (flows.length > 0) {
     return {
@@ -408,6 +410,78 @@ function emptyVoiceDetail() {
 
 async function getFlowDefinition(environment, accessToken, flowId) {
   return getJson(`${getApiBase(environment)}/api/v2/flows/${encodeURIComponent(flowId)}`, accessToken);
+}
+
+async function getFlowDefinitionsBatch(environment, accessToken, flowIds) {
+  if (!flowIds.length) {
+    return [];
+  }
+
+  const url = new URL(`${getApiBase(environment)}/api/v2/flows`);
+  url.searchParams.set('id', flowIds.join(','));
+  const response = await getJson(url.toString(), accessToken);
+  return extractCollection(response);
+}
+
+async function primeFlowDivisionCache(environment, accessToken, flows) {
+  const idsToLoad = flows
+    .map((flow) => flow?.id)
+    .filter(Boolean)
+    .filter((flowId) => !divisionCache.has(flowId));
+
+  if (!idsToLoad.length) {
+    return;
+  }
+
+  for (let index = 0; index < idsToLoad.length; index += FLOW_LOOKUP_BATCH_SIZE) {
+    const batchIds = idsToLoad.slice(index, index + FLOW_LOOKUP_BATCH_SIZE);
+    const unresolved = new Set(batchIds);
+
+    try {
+      const entities = await getFlowDefinitionsBatch(environment, accessToken, batchIds);
+      for (const entity of entities) {
+        if (!entity?.id) {
+          continue;
+        }
+
+        const result = entity?.division
+          ? {
+              divisionId: entity.division.id || null,
+              divisionName: entity.division.name || 'Unknown Division',
+            }
+          : {
+              divisionId: null,
+              divisionName: 'Unknown Division',
+            };
+
+        divisionCache.set(entity.id, result);
+        unresolved.delete(entity.id);
+      }
+    } catch {
+      // Fall back to individual lookups below.
+    }
+
+    for (const flowId of unresolved) {
+      try {
+        const entity = await getFlowDefinition(environment, accessToken, flowId);
+        const result = entity?.division
+          ? {
+              divisionId: entity.division.id || null,
+              divisionName: entity.division.name || 'Unknown Division',
+            }
+          : {
+              divisionId: null,
+              divisionName: 'Unknown Division',
+            };
+        divisionCache.set(flowId, result);
+      } catch {
+        divisionCache.set(flowId, {
+          divisionId: null,
+          divisionName: 'Unknown Division',
+        });
+      }
+    }
+  }
 }
 
 async function resolveFlowDivision(environment, accessToken, flow) {
