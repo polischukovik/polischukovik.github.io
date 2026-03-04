@@ -417,10 +417,23 @@ async function getFlowDefinitionsBatch(environment, accessToken, flowIds) {
     return [];
   }
 
-  const url = new URL(`${getApiBase(environment)}/api/v2/flows`);
-  url.searchParams.set('id', flowIds.join(','));
-  const response = await getJson(url.toString(), accessToken);
-  return extractCollection(response);
+  const entities = [];
+  let nextUrl = new URL(`${getApiBase(environment)}/api/v2/flows`);
+  nextUrl.searchParams.set('pageSize', String(Math.min(flowIds.length, 100)));
+  nextUrl.searchParams.set('pageNumber', '1');
+  for (const flowId of flowIds) {
+    nextUrl.searchParams.append('id', flowId);
+  }
+
+  while (nextUrl) {
+    const response = await getJson(nextUrl.toString(), accessToken);
+    entities.push(...extractCollection(response));
+
+    const nextUri = response?.nextUri;
+    nextUrl = nextUri ? new URL(nextUri, getApiBase(environment)) : null;
+  }
+
+  return entities;
 }
 
 async function primeFlowDivisionCache(environment, accessToken, flows) {
