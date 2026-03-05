@@ -168,28 +168,68 @@ function renderReportDetailsSection(title, rows, options = {}) {
   `;
 }
 
+function renderHighlights(highlights) {
+  if (!Array.isArray(highlights) || !highlights.length) {
+    return '';
+  }
+
+  return `
+    <section class="kpi-grid">
+      ${highlights.map((item) => `
+        <div class="kpi-card">
+          <p class="kpi-label">${escapeHtml(item.label)}</p>
+          <p class="kpi-value">${escapeHtml(item.value)}</p>
+        </div>
+      `).join('')}
+    </section>
+  `;
+}
+
 function renderBotflowStructuredReport(reportData) {
   if (!reportData || reportData.type !== 'botflowCost' || !reportStructured) {
     return false;
   }
 
-  const highlightsHtml = Array.isArray(reportData.highlights)
-    ? reportData.highlights.map((item) => `
-        <div class="kpi-card">
-          <p class="kpi-label">${escapeHtml(item.label)}</p>
-          <p class="kpi-value">${escapeHtml(item.value)}</p>
-        </div>
-      `).join('')
-    : '';
-
   const html = `
-    ${highlightsHtml ? `<section class="kpi-grid">${highlightsHtml}</section>` : ''}
+    ${renderHighlights(reportData.highlights)}
     ${renderReportDetailsSection(reportData.voice?.divisionTitle, reportData.voice?.divisionRows || [], { open: true })}
     ${renderReportDetailsSection(reportData.digital?.divisionTitle, reportData.digital?.divisionRows || [], { open: true })}
   `;
 
   reportStructured.innerHTML = html;
   return true;
+}
+
+function renderSmsStructuredReport(reportData) {
+  if (!reportData || reportData.type !== 'smsCost' || !reportStructured) {
+    return false;
+  }
+
+  const primarySectionsHtml = (Array.isArray(reportData.primarySections) ? reportData.primarySections : [])
+    .map((section) => renderReportDetailsSection(section?.title, section?.rows || [], { open: true }))
+    .join('');
+  const detailSectionsHtml = (Array.isArray(reportData.detailSections) ? reportData.detailSections : [])
+    .map((section) => renderReportDetailsSection(section?.title, section?.rows || [], { open: false }))
+    .join('');
+
+  const html = `
+    ${renderHighlights(reportData.highlights)}
+    ${primarySectionsHtml}
+    ${detailSectionsHtml}
+  `;
+
+  reportStructured.innerHTML = html;
+  return true;
+}
+
+function renderStructuredReport(reportData) {
+  if (renderBotflowStructuredReport(reportData)) {
+    return true;
+  }
+  if (renderSmsStructuredReport(reportData)) {
+    return true;
+  }
+  return false;
 }
 
 function clearStructuredReport() {
@@ -203,7 +243,7 @@ function setReportView({ meta = '', content = '', filename = null, reportData = 
   reportOutput.textContent = content;
   currentReportFilename = filename;
 
-  const hasStructuredReport = renderBotflowStructuredReport(reportData);
+  const hasStructuredReport = renderStructuredReport(reportData);
   if (!hasStructuredReport) {
     clearStructuredReport();
   }

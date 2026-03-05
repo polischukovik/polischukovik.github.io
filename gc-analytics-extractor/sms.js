@@ -545,6 +545,123 @@ function formatTable(data) {
   return `${headerRow}\n${separator}\n${dataRows}`;
 }
 
+function buildDivisionMrpTableData(mrpResults) {
+  return Object.values(mrpResults.divisionMrpAttribution).map((dataRow) => ({
+    division: dataRow.divisionName,
+    totalMrp: `$${dataRow.totalMrp.toFixed(2)}`,
+    proportion: mrpResults.overallTotalMrp > 0 ? `${((dataRow.totalMrp / mrpResults.overallTotalMrp) * 100).toFixed(2)}%` : '0.00%',
+  })).sort((a, b) => a.division.localeCompare(b.division));
+}
+
+function buildMrpRateClassTableData(mrpResults) {
+  return Object.values(mrpResults.aggregatedMrp).map((dataRow) => ({
+    rateClass: dataRow.rateClass,
+    phoneNumbers: dataRow.PhoneNumbers,
+    ratePerNumber: `$${dataRow.ratePerNumber}`,
+    totalForRateClass: `$${dataRow.totalForRateClass.toFixed(2)}`,
+  })).sort((a, b) => a.rateClass.localeCompare(b.rateClass));
+}
+
+function buildNumbersDetailsTableData(mrpResults) {
+  const numbersDetailsForTable = mrpResults.numbersDetails.map(({ divisionId, ...rest }) => rest);
+  numbersDetailsForTable.sort((a, b) => {
+    if (a.divisionName !== b.divisionName) return a.divisionName.localeCompare(b.divisionName);
+    if (a.rateClass !== b.rateClass) return a.rateClass.localeCompare(b.rateClass);
+    if (a.country !== b.country) return a.country.localeCompare(b.country);
+    return a.phoneNumber.localeCompare(b.phoneNumber);
+  });
+  return numbersDetailsForTable;
+}
+
+function buildAllDetailedSmsRecords(messageResults) {
+  const allResults = [...messageResults.inboundResults, ...messageResults.outboundResults];
+  allResults.sort((a, b) => {
+    if (a.conversationId !== b.conversationId) {
+      return a.conversationId.localeCompare(b.conversationId);
+    }
+    return a.participantPurpose.localeCompare(b.participantPurpose);
+  });
+  return allResults;
+}
+
+function buildSmsReportData(mrpResults, messageResults, genesysCloudInterval, humanReadableInterval, smsConfig) {
+  const grandTotal = mrpResults.overallTotalMrp + messageResults.totalInboundCost + messageResults.totalOutboundCost;
+  const divisionMrpTableData = buildDivisionMrpTableData(mrpResults);
+  const inboundByDivision = aggregateMessagesByDivision(messageResults.inboundResults, messageResults.totalInboundCost, smsConfig);
+  const outboundByDivision = aggregateMessagesByDivision(messageResults.outboundResults, messageResults.totalOutboundCost, smsConfig);
+  const aggregatedMrpByRateClass = buildMrpRateClassTableData(mrpResults);
+  const inboundByRateClass = aggregateMessagesByRateClass(messageResults.inboundResults, messageResults.totalInboundCost);
+  const outboundByRateClass = aggregateMessagesByRateClass(messageResults.outboundResults, messageResults.totalOutboundCost);
+  const numbersDetailsForTable = buildNumbersDetailsTableData(mrpResults);
+  const inboundByNumber = aggregateByNumberAndDivision(messageResults.inboundResults, smsConfig);
+  const outboundByNumber = aggregateByNumberAndDivision(messageResults.outboundResults, smsConfig);
+  const outboundByEmitter = aggregateByEmitterAndDivision(messageResults.outboundResults);
+  const outboundByDivisionAndPurpose = aggregateByDivisionAndPurpose(messageResults.outboundResults);
+
+  return {
+    type: 'smsCost',
+    interval: genesysCloudInterval,
+    humanReadableInterval,
+    generatedAt: new Date().toISOString(),
+    highlights: [
+      { label: 'Total MRP', value: `$${mrpResults.overallTotalMrp.toFixed(2)}` },
+      { label: 'Inbound Cost', value: `$${messageResults.totalInboundCost.toFixed(4)}` },
+      { label: 'Outbound Cost', value: `$${messageResults.totalOutboundCost.toFixed(4)}` },
+      { label: 'Grand Total', value: `$${grandTotal.toFixed(4)}` },
+      { label: 'Inbound Segments', value: String(messageResults.totalInboundSegments) },
+      { label: 'Outbound Segments', value: String(messageResults.totalOutboundSegments) },
+    ],
+    primarySections: [
+      {
+        title: 'Monthly Recurring Price (MRP) by Division',
+        rows: divisionMrpTableData,
+      },
+      {
+        title: 'Inbound Per-Message Cost by Division',
+        rows: inboundByDivision,
+      },
+      {
+        title: 'Outbound Per-Message Cost by Division',
+        rows: outboundByDivision,
+      },
+    ],
+    detailSections: [
+      {
+        title: 'Monthly Recurring Price (MRP) by Rate Class',
+        rows: aggregatedMrpByRateClass,
+      },
+      {
+        title: 'Inbound SMS by Rate Class',
+        rows: inboundByRateClass,
+      },
+      {
+        title: 'Outbound SMS by Rate Class',
+        rows: outboundByRateClass,
+      },
+      {
+        title: 'Provisioned SMS Numbers',
+        rows: numbersDetailsForTable,
+      },
+      {
+        title: 'Inbound SMS by Number and Division',
+        rows: inboundByNumber,
+      },
+      {
+        title: 'Outbound SMS by Number and Division',
+        rows: outboundByNumber,
+      },
+      {
+        title: 'Outbound SMS by Emitter and Division',
+        rows: outboundByEmitter,
+      },
+      {
+        title: 'Outbound SMS by Division and Purpose',
+        rows: outboundByDivisionAndPurpose,
+      },
+    ],
+  };
+}
+
 function generateReport(mrpResults, messageResults, genesysCloudInterval, humanReadableInterval, smsConfig) {
   let reportContent = 'Genesys Cloud Combined SMS Cost Report\n';
   reportContent += `Report Interval: ${humanReadableInterval} (${genesysCloudInterval})\n`;
@@ -558,11 +675,7 @@ function generateReport(mrpResults, messageResults, genesysCloudInterval, humanR
   reportContent += `Grand Total: $${grandTotal.toFixed(4)}\n\n`;
 
   reportContent += '--- Monthly Recurring Price (MRP) Attributed by Division ---\n';
-  const divisionMrpTableData = Object.values(mrpResults.divisionMrpAttribution).map((dataRow) => ({
-    division: dataRow.divisionName,
-    totalMrp: `$${dataRow.totalMrp.toFixed(2)}`,
-    proportion: mrpResults.overallTotalMrp > 0 ? `${((dataRow.totalMrp / mrpResults.overallTotalMrp) * 100).toFixed(2)}%` : '0.00%',
-  })).sort((a, b) => a.division.localeCompare(b.division));
+  const divisionMrpTableData = buildDivisionMrpTableData(mrpResults);
   reportContent += `${formatTable(divisionMrpTableData)}\n\n`;
 
   const inboundByDivision = aggregateMessagesByDivision(messageResults.inboundResults, messageResults.totalInboundCost, smsConfig);
@@ -574,12 +687,12 @@ function generateReport(mrpResults, messageResults, genesysCloudInterval, humanR
   reportContent += `${formatTable(outboundByDivision)}\n\n`;
 
   reportContent += '--- Monthly Recurring Price (MRP) Aggregated by Rate Class ---\n';
-  const aggregatedTableData = Object.values(mrpResults.aggregatedMrp).map((dataRow) => ({
-    rateClass: dataRow.rateClass,
-    PhoneNumbers: dataRow.PhoneNumbers,
-    ratePerNumber: `$${dataRow.ratePerNumber}`,
-    totalForRateClass: `$${dataRow.totalForRateClass.toFixed(2)}`,
-  })).sort((a, b) => a.rateClass.localeCompare(b.rateClass));
+  const aggregatedTableData = buildMrpRateClassTableData(mrpResults).map((row) => ({
+    rateClass: row.rateClass,
+    PhoneNumbers: row.phoneNumbers,
+    ratePerNumber: row.ratePerNumber,
+    totalForRateClass: row.totalForRateClass,
+  }));
   reportContent += `${formatTable(aggregatedTableData)}\n\n`;
 
   const inboundByRateClass = aggregateMessagesByRateClass(messageResults.inboundResults, messageResults.totalInboundCost);
@@ -591,13 +704,7 @@ function generateReport(mrpResults, messageResults, genesysCloudInterval, humanR
   reportContent += `${formatTable(outboundByRateClass)}\n\n`;
 
   reportContent += '--- Provisioned SMS Numbers Details ---\n';
-  const numbersDetailsForTable = mrpResults.numbersDetails.map(({ divisionId, ...rest }) => rest);
-  numbersDetailsForTable.sort((a, b) => {
-    if (a.divisionName !== b.divisionName) return a.divisionName.localeCompare(b.divisionName);
-    if (a.rateClass !== b.rateClass) return a.rateClass.localeCompare(b.rateClass);
-    if (a.country !== b.country) return a.country.localeCompare(b.country);
-    return a.phoneNumber.localeCompare(b.phoneNumber);
-  });
+  const numbersDetailsForTable = buildNumbersDetailsTableData(mrpResults);
   reportContent += `${formatTable(numbersDetailsForTable)}\n\n`;
 
   const inboundByNumber = aggregateByNumberAndDivision(messageResults.inboundResults, smsConfig);
@@ -624,13 +731,7 @@ function generateReport(mrpResults, messageResults, genesysCloudInterval, humanR
   reportContent += '- **Campaign**: Division of the associated Outbound Campaign.\n';
   reportContent += '- **API**: Division of the Conversation itself (first division ID if multiple).\n';
   reportContent += '---------------------------------\n\n';
-  const allResults = [...messageResults.inboundResults, ...messageResults.outboundResults];
-  allResults.sort((a, b) => {
-    if (a.conversationId !== b.conversationId) {
-      return a.conversationId.localeCompare(b.conversationId);
-    }
-    return a.participantPurpose.localeCompare(b.participantPurpose);
-  });
+  const allResults = buildAllDetailedSmsRecords(messageResults);
   reportContent += `${formatTable(allResults)}\n\n`;
 
   return reportContent;
@@ -746,12 +847,14 @@ async function runSmsCost({ environment, accessToken, intervalInput, frontendCon
   ]);
 
   const reportContent = generateReport(mrpResults, messageResults, interval, humanReadableInterval, smsConfig);
+  const reportData = buildSmsReportData(mrpResults, messageResults, interval, humanReadableInterval, smsConfig);
   const grandTotal = mrpResults.overallTotalMrp + messageResults.totalInboundCost + messageResults.totalOutboundCost;
 
   return {
     interval,
     humanReadableInterval,
     reportContent,
+    reportData,
     summary: {
       totalMrp: Number(mrpResults.overallTotalMrp.toFixed(2)),
       totalInboundCost: Number(messageResults.totalInboundCost.toFixed(4)),
