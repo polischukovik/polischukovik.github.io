@@ -17,9 +17,9 @@
     <header class="hero panel">
       <p class="eyebrow">Genesys Cloud Analytics</p>
       <h1>Genesys Analytics Portal</h1>
-      <p class="subtitle">Run analytics cost allocation pipelines directly in the browser with tenant config stored in Genesys Cloud.</p>
+      <p class="subtitle">Run analytics cost allocation pipelines with tenant config stored in Genesys Cloud.</p>
       <p id="authenticated-user" class="user-line"></p>
-      <div class="section-head">
+      <div class="section-head hero-head">
         <p id="auth-status" class="status"></p>
         <button id="sign-out-button" type="button" class="secondary">Re-authenticate</button>
       </div>
@@ -90,17 +90,17 @@
     </section>
 
     <section class="panel">
-      <div class="section-head">
+      <div class="section-head report-head">
         <h2>Report</h2>
-        <div class="pkce-actions">
-          <p id="report-meta" class="small"></p>
+        <div class="pkce-actions report-actions">
+          <p id="report-meta" class="small report-meta"></p>
           <button id="download-report-button" type="button" class="secondary">Download Report</button>
         </div>
       </div>
       <div id="report-structured" class="report-structured"></div>
       <details id="raw-report-details" class="raw-report-details">
         <summary>Raw Report</summary>
-        <pre id="report-output" class="report">Run a pipeline or select a local run to view its cached report.</pre>
+        <pre id="report-output" class="report">Run a pipeline or select a run to view its report.</pre>
       </details>
     </section>
   </main>

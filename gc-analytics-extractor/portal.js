@@ -512,7 +512,7 @@ function renderRunsTable(runs) {
 
   if (!runs.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="6">No local runs saved yet.</td>';
+    tr.innerHTML = '<td colspan="6">No runs saved yet.</td>';
     runsBody.appendChild(tr);
     return;
   }
@@ -549,7 +549,7 @@ async function viewRun(runId) {
 
   setReportView({
     meta: buildReportMeta(run),
-    content: run.reportContent || 'No cached report content.',
+    content: run.reportContent || 'No report content.',
     filename: run.reportFilename || buildReportFilename(run),
     reportData: run.reportData,
     rawExpanded: !run.reportData,
@@ -601,11 +601,11 @@ async function runPipeline() {
     startedAt,
     durationMs: null,
     reportFilename: null,
-    reportContent: `Running ${pipelineName} in the browser...`,
+    reportContent: `Running ${pipelineName}...`,
     reportData: null,
     summary: null,
     metadata: {
-      source: 'browser-shell',
+      source: 'portal',
       mode: 'pending',
       reportDateRange: selectedInterval.reportDateRange,
     },
@@ -613,7 +613,7 @@ async function runPipeline() {
 
   await refreshRuns();
   await viewRun(pendingRun.id);
-  setStatus(pipelineStatus, `Running ${pipelineName} in the browser...`, '');
+  setStatus(pipelineStatus, `Running ${pipelineName}...`, '');
 
   try {
     let result;
@@ -636,7 +636,7 @@ async function runPipeline() {
         frontendConfig: resolvedConfig?.config || null,
       });
     } else {
-      throw new Error(`Unsupported frontend pipeline "${pipelineName}".`);
+      throw new Error(`Unsupported pipeline "${pipelineName}".`);
     }
 
     const completedRun = await saveRun({
@@ -656,8 +656,8 @@ async function runPipeline() {
       reportData: result.reportData || null,
       summary: result.summary,
       metadata: {
-        source: 'browser-shell',
-        mode: result.billingMode || 'frontend',
+        source: 'portal',
+        mode: result.billingMode || 'default',
         reportDateRange: formatDateRangeFromInterval(result.interval),
         resolvedInterval: result.interval,
       },
@@ -666,7 +666,7 @@ async function runPipeline() {
     await refreshRuns();
     await viewRun(completedRun.id);
     const modeSuffix = result.billingMode ? ` in ${result.billingMode} mode` : '';
-    setStatus(pipelineStatus, `${pipelineName} completed${modeSuffix} and was saved locally.`, 'ok');
+    setStatus(pipelineStatus, `${pipelineName} completed${modeSuffix} and was saved.`, 'ok');
     setStatus(runsStatus, `Saved ${pipelineName} run ${completedRun.id}.`, 'ok');
   } catch (error) {
     const failedRun = await saveRun({
@@ -686,7 +686,7 @@ async function runPipeline() {
       reportData: null,
       summary: null,
       metadata: {
-        source: 'browser-shell',
+        source: 'portal',
         mode: 'failed',
         reportDateRange: selectedInterval.reportDateRange,
       },
@@ -767,7 +767,7 @@ runsBody.addEventListener('click', async (event) => {
 
   try {
     await viewRun(runId);
-    setStatus(runsStatus, `Loaded local run ${runId}.`, 'ok');
+    setStatus(runsStatus, `Loaded run ${runId}.`, 'ok');
   } catch (error) {
     setStatus(runsStatus, error.message, 'error');
   }
@@ -816,7 +816,7 @@ async function boot() {
     });
   }
 
-  setStatus(pipelineStatus, 'Ready to run browser pipelines.', '');
+  setStatus(pipelineStatus, 'Ready to run pipelines.', '');
 }
 
 boot().catch((error) => {
