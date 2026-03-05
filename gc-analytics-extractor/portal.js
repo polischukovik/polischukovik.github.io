@@ -173,12 +173,37 @@ function renderHighlights(highlights) {
     return '';
   }
 
+  const renderKpiValue = (value) => {
+    const raw = String(value ?? '');
+    const match = raw.match(/^([^0-9+\-]*)([-+]?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?)([^0-9]*)$/);
+    if (!match) {
+      return escapeHtml(raw);
+    }
+
+    const prefix = match[1] || '';
+    const numericRaw = (match[2] || '').replace(/,/g, '');
+    const suffix = match[3] || '';
+
+    if (/[0-9]/.test(suffix)) {
+      return escapeHtml(raw);
+    }
+
+    const numericValue = Number(numericRaw);
+    if (Number.isNaN(numericValue)) {
+      return escapeHtml(raw);
+    }
+
+    const fixed = numericValue.toFixed(2);
+    const [integerPart, decimalPart = '00'] = fixed.split('.');
+    return `${escapeHtml(`${prefix}${integerPart}`)}<span class="kpi-decimals">.${escapeHtml(decimalPart)}</span>${escapeHtml(suffix)}`;
+  };
+
   return `
     <section class="kpi-grid">
       ${highlights.map((item) => `
         <div class="kpi-card">
           <p class="kpi-label">${escapeHtml(item.label)}</p>
-          <p class="kpi-value">${escapeHtml(item.value)}</p>
+          <p class="kpi-value">${renderKpiValue(item.value)}</p>
         </div>
       `).join('')}
     </section>
@@ -205,17 +230,29 @@ function renderSmsStructuredReport(reportData) {
     return false;
   }
 
-  const primarySectionsHtml = (Array.isArray(reportData.primarySections) ? reportData.primarySections : [])
-    .map((section) => renderReportDetailsSection(section?.title, section?.rows || [], { open: true }))
-    .join('');
-  const detailSectionsHtml = (Array.isArray(reportData.detailSections) ? reportData.detailSections : [])
-    .map((section) => renderReportDetailsSection(section?.title, section?.rows || [], { open: false }))
-    .join('');
+  const primarySections = Array.isArray(reportData.primarySections) ? reportData.primarySections : [];
+  let primarySectionsHtml = '';
+  if (primarySections.length >= 3) {
+    const [leftSection, ...rightSections] = primarySections;
+    primarySectionsHtml = `
+      <section class="sms-primary-layout">
+        <div class="sms-primary-left">
+          ${renderReportDetailsSection(leftSection?.title, leftSection?.rows || [], { open: true })}
+        </div>
+        <div class="sms-primary-right">
+          ${rightSections.map((section) => renderReportDetailsSection(section?.title, section?.rows || [], { open: true })).join('')}
+        </div>
+      </section>
+    `;
+  } else {
+    primarySectionsHtml = primarySections
+      .map((section) => renderReportDetailsSection(section?.title, section?.rows || [], { open: true }))
+      .join('');
+  }
 
   const html = `
     ${renderHighlights(reportData.highlights)}
     ${primarySectionsHtml}
-    ${detailSectionsHtml}
   `;
 
   reportStructured.innerHTML = html;

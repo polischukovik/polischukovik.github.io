@@ -224,6 +224,11 @@ button:disabled {
   overflow-x: auto;
 }
 
+.runs-table-wrap {
+  height: 320px;
+  overflow-y: auto;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -282,6 +287,10 @@ td {
   color: #0f172a;
 }
 
+.kpi-decimals {
+  color: rgba(15, 23, 42, 0.55);
+}
+
 .report-details {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -303,6 +312,18 @@ td {
 
 .report-details > .table-wrap {
   margin-top: 10px;
+}
+
+.sms-primary-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.sms-primary-right {
+  display: grid;
+  gap: 12px;
 }
 
 .raw-report-details {
@@ -403,6 +424,10 @@ td {
   }
 
   .custom-range {
+    grid-template-columns: 1fr;
+  }
+
+  .sms-primary-layout {
     grid-template-columns: 1fr;
   }
 }

@@ -344,14 +344,16 @@ function roundVoiceBillableMinutes(totalBillableSeconds) {
 }
 
 function determineBillingMode(interval) {
-  const [, end] = String(interval || '').split('/');
+  const [start, end] = String(interval || '').split('/');
+  const startDate = start ? new Date(start) : new Date();
   const endDate = end ? new Date(end) : new Date();
-  if (Number.isNaN(endDate.getTime())) {
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
     return 'recent';
   }
 
   const retentionCutoff = Date.now() - (DETAIL_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  return endDate.getTime() >= retentionCutoff ? 'recent' : 'historical';
+  const hasFullDetailCoverage = startDate.getTime() >= retentionCutoff && endDate.getTime() >= retentionCutoff;
+  return hasFullDetailCoverage ? 'recent' : 'historical';
 }
 
 function buildRecentCalibrationInterval(days) {

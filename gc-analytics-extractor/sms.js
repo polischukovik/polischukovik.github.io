@@ -589,14 +589,6 @@ function buildSmsReportData(mrpResults, messageResults, genesysCloudInterval, hu
   const divisionMrpTableData = buildDivisionMrpTableData(mrpResults);
   const inboundByDivision = aggregateMessagesByDivision(messageResults.inboundResults, messageResults.totalInboundCost, smsConfig);
   const outboundByDivision = aggregateMessagesByDivision(messageResults.outboundResults, messageResults.totalOutboundCost, smsConfig);
-  const aggregatedMrpByRateClass = buildMrpRateClassTableData(mrpResults);
-  const inboundByRateClass = aggregateMessagesByRateClass(messageResults.inboundResults, messageResults.totalInboundCost);
-  const outboundByRateClass = aggregateMessagesByRateClass(messageResults.outboundResults, messageResults.totalOutboundCost);
-  const numbersDetailsForTable = buildNumbersDetailsTableData(mrpResults);
-  const inboundByNumber = aggregateByNumberAndDivision(messageResults.inboundResults, smsConfig);
-  const outboundByNumber = aggregateByNumberAndDivision(messageResults.outboundResults, smsConfig);
-  const outboundByEmitter = aggregateByEmitterAndDivision(messageResults.outboundResults);
-  const outboundByDivisionAndPurpose = aggregateByDivisionAndPurpose(messageResults.outboundResults);
 
   return {
     type: 'smsCost',
@@ -623,40 +615,6 @@ function buildSmsReportData(mrpResults, messageResults, genesysCloudInterval, hu
       {
         title: 'Outbound Per-Message Cost by Division',
         rows: outboundByDivision,
-      },
-    ],
-    detailSections: [
-      {
-        title: 'Monthly Recurring Price (MRP) by Rate Class',
-        rows: aggregatedMrpByRateClass,
-      },
-      {
-        title: 'Inbound SMS by Rate Class',
-        rows: inboundByRateClass,
-      },
-      {
-        title: 'Outbound SMS by Rate Class',
-        rows: outboundByRateClass,
-      },
-      {
-        title: 'Provisioned SMS Numbers',
-        rows: numbersDetailsForTable,
-      },
-      {
-        title: 'Inbound SMS by Number and Division',
-        rows: inboundByNumber,
-      },
-      {
-        title: 'Outbound SMS by Number and Division',
-        rows: outboundByNumber,
-      },
-      {
-        title: 'Outbound SMS by Emitter and Division',
-        rows: outboundByEmitter,
-      },
-      {
-        title: 'Outbound SMS by Division and Purpose',
-        rows: outboundByDivisionAndPurpose,
       },
     ],
   };
