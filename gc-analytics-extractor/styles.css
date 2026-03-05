@@ -171,6 +171,12 @@ select {
   gap: 10px;
 }
 
+.month-range {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
 .hidden {
   display: none !important;
 }

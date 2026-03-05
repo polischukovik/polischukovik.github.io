@@ -33,6 +33,8 @@ const authStatus = document.getElementById('auth-status');
 const pipelineForm = document.getElementById('pipeline-form');
 const pipelineNameSelect = document.getElementById('pipeline-name');
 const pipelineIntervalPresetSelect = document.getElementById('pipeline-interval-preset');
+const pipelineMonthRange = document.getElementById('pipeline-month-range');
+const pipelineMonthInput = document.getElementById('pipeline-month');
 const pipelineCustomRange = document.getElementById('pipeline-custom-range');
 const pipelineStartDateInput = document.getElementById('pipeline-start-date');
 const pipelineEndDateInput = document.getElementById('pipeline-end-date');
@@ -55,6 +57,7 @@ const INTERVAL_PRESET_LABELS = {
   lastweek: 'Last Week',
   thismonth: 'This Month',
   lastmonth: 'Last Month',
+  month: 'Specific Month',
 };
 
 function setStatus(element, message, type = '') {
@@ -312,14 +315,30 @@ function getAuthSettings() {
 }
 
 function syncIntervalInputVisibility() {
-  if (!pipelineIntervalPresetSelect || !pipelineCustomRange || !pipelineStartDateInput || !pipelineEndDateInput) {
+  if (
+    !pipelineIntervalPresetSelect
+    || !pipelineMonthRange
+    || !pipelineMonthInput
+    || !pipelineCustomRange
+    || !pipelineStartDateInput
+    || !pipelineEndDateInput
+  ) {
     return;
   }
 
-  const isCustom = pipelineIntervalPresetSelect.value === 'custom';
+  const preset = pipelineIntervalPresetSelect.value;
+  const isMonth = preset === 'month';
+  const isCustom = preset === 'custom';
+
+  pipelineMonthRange.classList.toggle('hidden', !isMonth);
+  pipelineMonthInput.required = isMonth;
   pipelineCustomRange.classList.toggle('hidden', !isCustom);
   pipelineStartDateInput.required = isCustom;
   pipelineEndDateInput.required = isCustom;
+
+  if (!isMonth) {
+    pipelineMonthInput.value = '';
+  }
 
   if (!isCustom) {
     pipelineStartDateInput.value = '';
@@ -329,6 +348,43 @@ function syncIntervalInputVisibility() {
 
 function getSelectedIntervalConfig() {
   const preset = pipelineIntervalPresetSelect?.value || 'yesterday';
+  if (preset === 'custom') {
+    const startDate = pipelineStartDateInput?.value || '';
+    const endDate = pipelineEndDateInput?.value || '';
+    if (!startDate || !endDate) {
+      throw new Error('Custom start and end dates are required.');
+    }
+    if (startDate > endDate) {
+      throw new Error('Custom start date must be on or before the end date.');
+    }
+
+    return {
+      intervalInput: `${startDate}/${endDate}`,
+      humanReadableInterval: `${startDate} to ${endDate}`,
+      reportDateRange: `${startDate} to ${endDate}`,
+    };
+  }
+
+  if (preset === 'month') {
+    const monthValue = pipelineMonthInput?.value || '';
+    const monthMatch = /^(\d{4})-(\d{2})$/.exec(monthValue);
+    if (!monthMatch) {
+      throw new Error('Select a month to run a full-month report.');
+    }
+
+    const year = Number(monthMatch[1]);
+    const monthIndex = Number(monthMatch[2]) - 1;
+    const start = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+    const endExclusive = new Date(Date.UTC(year, monthIndex + 1, 1, 0, 0, 0, 0));
+    const intervalIso = `${start.toISOString()}/${endExclusive.toISOString()}`;
+
+    return {
+      intervalInput: intervalIso,
+      humanReadableInterval: monthValue,
+      reportDateRange: formatDateRangeFromInterval(intervalIso),
+    };
+  }
+
   if (preset !== 'custom') {
     const now = new Date();
     const startOfUtcDay = (date) => new Date(Date.UTC(
@@ -375,21 +431,6 @@ function getSelectedIntervalConfig() {
       reportDateRange: formatDateRangeFromInterval(`${start.toISOString()}/${endExclusive.toISOString()}`),
     };
   }
-
-  const startDate = pipelineStartDateInput?.value || '';
-  const endDate = pipelineEndDateInput?.value || '';
-  if (!startDate || !endDate) {
-    throw new Error('Custom start and end dates are required.');
-  }
-  if (startDate > endDate) {
-    throw new Error('Custom start date must be on or before the end date.');
-  }
-
-  return {
-    intervalInput: `${startDate}/${endDate}`,
-    humanReadableInterval: `${startDate} to ${endDate}`,
-    reportDateRange: `${startDate} to ${endDate}`,
-  };
 }
 
 async function loadAuthenticatedUser() {
