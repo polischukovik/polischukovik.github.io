@@ -501,7 +501,12 @@ function aggregateMessagesByRateClass(data, totalCostForProportion) {
     ...dataRow,
     totalCost: `$${dataRow.totalCost.toFixed(4)}`,
     proportion: totalCostForProportion > 0 ? `${((dataRow.totalCost / totalCostForProportion) * 100).toFixed(2)}%` : '0.00%',
-  })).sort((a, b) => a.rateClass.localeCompare(b.rateClass));
+  })).sort((a, b) => {
+    if (b.totalCost !== a.totalCost) {
+      return b.totalCost - a.totalCost;
+    }
+    return a.rateClass.localeCompare(b.rateClass);
+  });
 }
 
 function aggregateMessagesByDivision(data, totalCostForProportion, smsConfig) {
@@ -524,7 +529,12 @@ function aggregateMessagesByDivision(data, totalCostForProportion, smsConfig) {
     ...dataRow,
     totalCost: `$${dataRow.totalCost.toFixed(4)}`,
     proportion: totalCostForProportion > 0 ? `${((dataRow.totalCost / totalCostForProportion) * 100).toFixed(2)}%` : '0.00%',
-  })).sort((a, b) => a.division.localeCompare(b.division));
+  })).sort((a, b) => {
+    if (b.totalCost !== a.totalCost) {
+      return b.totalCost - a.totalCost;
+    }
+    return a.division.localeCompare(b.division);
+  });
 }
 
 function formatTable(data) {
@@ -550,7 +560,12 @@ function buildDivisionMrpTableData(mrpResults) {
     division: dataRow.divisionName,
     totalMrp: `$${dataRow.totalMrp.toFixed(2)}`,
     proportion: mrpResults.overallTotalMrp > 0 ? `${((dataRow.totalMrp / mrpResults.overallTotalMrp) * 100).toFixed(2)}%` : '0.00%',
-  })).sort((a, b) => a.division.localeCompare(b.division));
+  })).sort((a, b) => {
+    if (b.totalMrp !== a.totalMrp) {
+      return b.totalMrp - a.totalMrp;
+    }
+    return a.division.localeCompare(b.division);
+  });
 }
 
 function buildMrpRateClassTableData(mrpResults) {

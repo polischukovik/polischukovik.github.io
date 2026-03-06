@@ -205,17 +205,19 @@ button.link-button {
   border: 0;
   border-radius: 0;
   padding: 0;
-  color: var(--ink-soft);
+  color: var(--accent);
   font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 0.12em;
-  text-decoration-color: rgba(75, 85, 99, 0.55);
+  text-decoration-color: rgba(15, 118, 110, 0.45);
+  box-shadow: none;
 }
 
 button.link-button:hover {
   transform: none;
-  color: #334155;
+  color: #0b655f;
   text-decoration-color: currentColor;
+  background: none;
 }
 
 button:disabled {
